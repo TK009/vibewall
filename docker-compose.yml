@@ -1,0 +1,26 @@
+services:
+  vibewall:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - certs:/certs
+      - ./config:/app/config
+
+  # Example agent container that routes through vibewall
+  agent:
+    image: node:20-slim
+    environment:
+      - HTTP_PROXY=http://vibewall:8888
+      - HTTPS_PROXY=http://vibewall:8888
+      - NODE_EXTRA_CA_CERTS=/certs/mitmproxy-ca-cert.pem
+      - npm_config_cafile=/certs/mitmproxy-ca-cert.pem
+    volumes:
+      - certs:/certs:ro
+    depends_on:
+      vibewall:
+        condition: service_healthy
+    command: ["sleep", "infinity"]
+
+volumes:
+  certs:

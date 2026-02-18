@@ -1,0 +1,19 @@
+port = 8888
+host = "0.0.0.0"
+
+[npm]
+min_weekly_downloads = 10
+min_package_age_days = 7
+max_typosquat_distance = 2
+mode = "block"   # "block" or "warn"
+
+[url]
+min_domain_age_days = 30
+mode = "block"   # "block" or "warn"
+enabled = true
+
+[cache]
+npm_positive_ttl = 86400   # 24h
+npm_negative_ttl = 3600    # 1h
+url_ttl = 3600             # 1h
+whois_ttl = 604800         # 7d

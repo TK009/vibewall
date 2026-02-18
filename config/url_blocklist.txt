@@ -1,0 +1,2 @@
+# Blocked domains — always reject requests to these
+# Add domains here to always block them

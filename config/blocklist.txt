@@ -1,0 +1,5 @@
+# Known malicious or suspicious packages
+# Add packages here to always block them
+event-stream-malicious
+flatmap-stream
+ua-parser-js-malicious
