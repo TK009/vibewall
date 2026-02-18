@@ -31,7 +31,7 @@ Each validator runs in **block** or **warn** mode independently. Block mode retu
 docker compose up --build
 ```
 
-This starts vibewall on port 8888 and an example Node agent container pre-configured to route through the proxy. The mitmproxy CA certificate is shared via a Docker volume.
+This starts vibewall on port 7777 and an example Node agent container pre-configured to route through the proxy. The mitmproxy CA certificate is shared via a Docker volume.
 
 ### Direct install
 
@@ -45,10 +45,32 @@ Requires Python 3.12+.
 ### Point your agent at the proxy
 
 ```bash
-export HTTP_PROXY=http://localhost:8888
-export HTTPS_PROXY=http://localhost:8888
+export HTTP_PROXY=http://localhost:7777
+export HTTPS_PROXY=http://localhost:7777
+```
 
-# For Node/npm — trust the mitmproxy CA
+### Trust the mitmproxy CA certificate
+
+Install the CA into your OS trust store so most HTTP clients (curl, wget, Python, Go, etc.) trust the proxy automatically.
+
+**Debian/Ubuntu:**
+
+```bash
+cp /path/to/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy.crt
+update-ca-certificates
+```
+
+**Alpine:**
+
+```bash
+apk add ca-certificates
+cp /path/to/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy.crt
+update-ca-certificates
+```
+
+**Node.js** uses its own bundled CAs and ignores the OS store, so it still needs explicit configuration:
+
+```bash
 export NODE_EXTRA_CA_CERTS=/path/to/mitmproxy-ca-cert.pem
 export npm_config_cafile=/path/to/mitmproxy-ca-cert.pem
 ```
@@ -58,7 +80,7 @@ export npm_config_cafile=/path/to/mitmproxy-ca-cert.pem
 Edit `config/vibewall.toml`:
 
 ```toml
-port = 8888
+port = 7777
 host = "0.0.0.0"
 
 [npm]
@@ -90,7 +112,7 @@ The default allowlist includes 110+ popular npm packages (react, express, lodash
 ```
 vibewall [OPTIONS]
 
-  --port, -p       Proxy listen port (default: 8888)
+  --port, -p       Proxy listen port (default: 7777)
   --host, -h       Proxy listen host (default: 0.0.0.0)
   --config, -c     Path to vibewall.toml
   --config-dir     Directory containing allowlist/blocklist (default: config)

@@ -27,7 +27,7 @@ def test_invalid_url_mode_raises() -> None:
 
 def test_load_nonexistent_returns_defaults() -> None:
     cfg = VibewallConfig.load(None)
-    assert cfg.port == 8888
+    assert cfg.port == 7777
     assert cfg.npm.mode == "block"
     assert cfg.url.mode == "block"
 
