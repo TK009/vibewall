@@ -1,39 +1,73 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from vibewall.config import NpmConfig, UrlConfig, VibewallConfig
+from vibewall.config import VibewallConfig, ValidatorConfig
 
 
-def test_valid_mode_block() -> None:
-    cfg = NpmConfig(mode="block")
-    assert cfg.mode == "block"
-
-
-def test_valid_mode_warn() -> None:
-    cfg = UrlConfig(mode="warn")
-    assert cfg.mode == "warn"
-
-
-def test_invalid_npm_mode_raises() -> None:
-    with pytest.raises(ValueError, match="invalid mode 'blcok'"):
-        NpmConfig(mode="blcok")
-
-
-def test_invalid_url_mode_raises() -> None:
-    with pytest.raises(ValueError, match="invalid mode 'foo'"):
-        UrlConfig(mode="foo")
+def test_default_config_has_all_validators() -> None:
+    cfg = VibewallConfig.load(None)
+    assert "npm_blocklist" in cfg.validators
+    assert "npm_registry" in cfg.validators
+    assert "url_dns" in cfg.validators
+    assert len(cfg.validators) == 11
 
 
 def test_load_nonexistent_returns_defaults() -> None:
-    cfg = VibewallConfig.load(None)
+    cfg = VibewallConfig.load(Path("/nonexistent/path.toml"))
     assert cfg.port == 7777
-    assert cfg.npm.mode == "block"
-    assert cfg.url.mode == "block"
+    assert len(cfg.validators) == 11
 
 
-def test_load_with_invalid_mode(tmp_path) -> None:
-    toml_file = tmp_path / "bad.toml"
-    toml_file.write_text('[npm]\nmode = "invalid"\n')
-    with pytest.raises(ValueError, match="invalid mode"):
-        VibewallConfig.load(toml_file)
+def test_load_toml_with_validators(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+port = 9999
+
+[validators.npm_blocklist]
+action = "block"
+
+[validators.npm_registry]
+action = "warn"
+cache_ttl = 1234
+
+[cache]
+default_ttl = 999
+max_entries = 100
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.port == 9999
+    assert len(cfg.validators) == 2
+    assert cfg.validators["npm_registry"].cache_ttl == 1234
+    assert cfg.validators["npm_registry"].action == "warn"
+    assert cfg.cache.default_ttl == 999
+
+
+def test_invalid_action_raises(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[validators.npm_blocklist]
+action = "invalid"
+""")
+    with pytest.raises(ValueError, match="invalid action"):
+        VibewallConfig.load(toml)
+
+
+def test_validator_params_loaded(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[validators.npm_typosquat]
+action = "block"
+max_distance = 5
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.validators["npm_typosquat"].params["max_distance"] == 5
+
+
+def test_disabled_validator() -> None:
+    cfg = VibewallConfig.load(None)
+    del cfg.validators["npm_downloads"]
+    assert not cfg.is_enabled("npm_downloads")
+    assert cfg.get_validator("npm_downloads") is None

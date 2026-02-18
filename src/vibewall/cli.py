@@ -40,9 +40,7 @@ def main(port: int | None, host: str | None, config_path: str | None, config_dir
         "vibewall_config",
         port=config.port,
         host=config.host,
-        npm_mode=config.npm.mode,
-        url_mode=config.url.mode,
-        url_enabled=config.url.enabled,
+        validators=list(config.validators.keys()),
     )
 
     asyncio.run(run_proxy(config))

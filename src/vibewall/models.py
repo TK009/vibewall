@@ -1,17 +1,67 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+
+
+class CheckStatus(Enum):
+    OK = "ok"
+    SUS = "sus"
+    FAIL = "fail"
+    ERR = "err"
 
 
 @dataclass(frozen=True)
-class ValidationResult:
+class CheckResult:
+    status: CheckStatus
+    reason: str
+    data: dict[str, Any] = field(default_factory=dict)
+
+    @staticmethod
+    def ok(reason: str = "ok", **data: Any) -> CheckResult:
+        return CheckResult(status=CheckStatus.OK, reason=reason, data=data)
+
+    @staticmethod
+    def fail(reason: str, **data: Any) -> CheckResult:
+        return CheckResult(status=CheckStatus.FAIL, reason=reason, data=data)
+
+    @staticmethod
+    def err(reason: str) -> CheckResult:
+        return CheckResult(status=CheckStatus.ERR, reason=reason)
+
+    @staticmethod
+    def sus(reason: str, **data: Any) -> CheckResult:
+        return CheckResult(status=CheckStatus.SUS, reason=reason, data=data)
+
+
+class CheckContext:
+    """Carries accumulated data from completed dependency checks."""
+
+    def __init__(self) -> None:
+        self._results: dict[str, CheckResult] = {}
+
+    def add(self, name: str, result: CheckResult) -> None:
+        self._results[name] = result
+
+    def get(self, name: str) -> CheckResult | None:
+        return self._results.get(name)
+
+    def data(self, name: str) -> dict[str, Any]:
+        result = self._results.get(name)
+        if result is None:
+            return {}
+        return result.data
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """Aggregate result from running all checks."""
+
     allowed: bool
     reason: str
+    results: list[tuple[str, CheckResult]]  # (check_name, result)
 
-    @staticmethod
-    def allow(reason: str = "ok") -> ValidationResult:
-        return ValidationResult(allowed=True, reason=reason)
-
-    @staticmethod
-    def block(reason: str) -> ValidationResult:
-        return ValidationResult(allowed=False, reason=reason)
+    @property
+    def blocked(self) -> bool:
+        return not self.allowed

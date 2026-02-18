@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from vibewall.cache.store import TTLCache
-from vibewall.config import NpmConfig, UrlConfig, CacheConfig
+from vibewall.config import VibewallConfig
 from vibewall.validators.allowlist import AllowBlockList
 
 
@@ -15,18 +16,8 @@ def cache() -> TTLCache:
 
 
 @pytest.fixture
-def npm_config() -> NpmConfig:
-    return NpmConfig()
-
-
-@pytest.fixture
-def url_config() -> UrlConfig:
-    return UrlConfig()
-
-
-@pytest.fixture
-def cache_config() -> CacheConfig:
-    return CacheConfig()
+def config() -> VibewallConfig:
+    return VibewallConfig.load(None)
 
 
 @pytest.fixture
@@ -36,3 +27,19 @@ def npm_lists(tmp_path: Path) -> AllowBlockList:
     blocklist = tmp_path / "blocklist.txt"
     blocklist.write_text("evil-package\n")
     return AllowBlockList(allowlist, blocklist)
+
+
+@pytest.fixture
+def url_lists(tmp_path: Path) -> AllowBlockList:
+    allowlist = tmp_path / "url_allowlist.txt"
+    allowlist.write_text("github.com\nnpmjs.org\n")
+    blocklist = tmp_path / "url_blocklist.txt"
+    blocklist.write_text("evil.example.com\n")
+    return AllowBlockList(allowlist, blocklist)
+
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.closed = False
+    return session

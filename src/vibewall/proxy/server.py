@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import aiohttp
 import structlog
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
@@ -11,37 +12,64 @@ from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.npm import NpmValidator
-from vibewall.validators.url import UrlValidator
+from vibewall.validators.checks import ALL_CHECKS
+from vibewall.validators.runner import CheckRunner
 
 logger = structlog.get_logger()
+
+
+def _build_checks(
+    config: VibewallConfig,
+    npm_lists: AllowBlockList,
+    url_lists: AllowBlockList,
+    session: aiohttp.ClientSession,
+) -> list:
+    """Instantiate all check classes with their dependencies."""
+    from vibewall.validators.base import BaseCheck
+
+    # Shared kwargs available to all check constructors
+    kwargs_map: dict[str, dict] = {}
+    for cls in ALL_CHECKS:
+        name = cls.name
+        vc = config.get_validator(name)
+        params = vc.params if vc else {}
+
+        kwargs = dict(params)
+        kwargs["lists"] = npm_lists
+        kwargs["url_lists"] = url_lists
+        kwargs["session"] = session
+        kwargs_map[name] = kwargs
+
+    checks: list[BaseCheck] = []
+    for cls in ALL_CHECKS:
+        try:
+            checks.append(cls(**kwargs_map[cls.name]))
+        except TypeError as e:
+            logger.warning("check_init_failed", check=cls.name, error=str(e))
+
+    return checks
 
 
 async def run_proxy(config: VibewallConfig) -> None:
     cache = TTLCache(max_entries=config.cache.max_entries)
 
-    allowlist_path = config.config_dir / "allowlist.txt"
-    blocklist_path = config.config_dir / "blocklist.txt"
-    npm_lists = AllowBlockList(allowlist_path, blocklist_path)
-
-    npm_validator = NpmValidator(
-        config=config.npm,
-        cache_config=config.cache,
-        cache=cache,
-        lists=npm_lists,
+    # Load allow/block lists
+    npm_lists = AllowBlockList(
+        config.config_dir / "allowlist.txt",
+        config.config_dir / "blocklist.txt",
+    )
+    url_lists = AllowBlockList(
+        config.config_dir / "url_allowlist.txt",
+        config.config_dir / "url_blocklist.txt",
     )
 
-    url_allowlist_path = config.config_dir / "url_allowlist.txt"
-    url_blocklist_path = config.config_dir / "url_blocklist.txt"
-    url_lists = AllowBlockList(url_allowlist_path, url_blocklist_path)
-    url_validator = UrlValidator(
-        config=config.url,
-        cache_config=config.cache,
-        cache=cache,
-        lists=url_lists,
-    )
+    # Shared HTTP session (trust_env=False to avoid proxy loop)
+    session = aiohttp.ClientSession(trust_env=False)
 
-    addon = VibewallAddon(config, npm_validator, url_validator)
+    checks = _build_checks(config, npm_lists, url_lists, session)
+    runner = CheckRunner(checks, config, cache)
+
+    addon = VibewallAddon(config, runner)
 
     opts = options.Options(
         listen_host=config.host,
@@ -61,5 +89,4 @@ async def run_proxy(config: VibewallConfig) -> None:
     try:
         await master.run()
     finally:
-        await npm_validator.close()
-        await url_validator.close()
+        await session.close()

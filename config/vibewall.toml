@@ -1,19 +1,46 @@
 port = 7777
 host = "0.0.0.0"
 
-[npm]
-min_weekly_downloads = 10
-min_package_age_days = 7
-max_typosquat_distance = 2
-mode = "block"   # "block" or "warn"
+[validators.npm_blocklist]
+action = "block"
 
-[url]
-min_domain_age_days = 30
-mode = "block"   # "block" or "warn"
-enabled = true
+[validators.npm_allowlist]
+action = "block"
+
+[validators.npm_registry]
+action = "warn"
+cache_ttl = 86400
+
+[validators.npm_existence]
+action = "block"
+
+[validators.npm_typosquat]
+action = "block"
+max_distance = 2
+
+[validators.npm_age]
+action = "block"
+min_days = 7
+
+[validators.npm_downloads]
+action = "warn"
+min_weekly = 10
+cache_ttl = 86400
+
+[validators.url_blocklist]
+action = "block"
+
+[validators.url_allowlist]
+action = "block"
+
+[validators.url_dns]
+action = "block"
+
+[validators.url_domain_age]
+action = "block"
+min_days = 30
+cache_ttl = 604800
 
 [cache]
-npm_positive_ttl = 86400   # 24h
-npm_negative_ttl = 3600    # 1h
-url_ttl = 3600             # 1h
-whois_ttl = 604800         # 7d
+default_ttl = 3600
+max_entries = 50000

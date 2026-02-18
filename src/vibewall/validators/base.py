@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from vibewall.models import ValidationResult
+from vibewall.models import CheckContext, CheckResult
 
 
-class BaseValidator(ABC):
+class BaseCheck(ABC):
+    name: str
+    depends_on: list[str] = []
+    scope: str  # "npm" or "url"
+
     @abstractmethod
-    async def validate(self, target: str) -> ValidationResult:
-        """Validate a target (package name or URL). Returns ValidationResult."""
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
+        """Run the check. context holds results/data from dependencies."""
         ...

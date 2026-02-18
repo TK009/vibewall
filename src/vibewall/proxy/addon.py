@@ -7,9 +7,8 @@ import structlog
 from mitmproxy import http
 
 from vibewall.config import VibewallConfig
-from vibewall.models import ValidationResult
-from vibewall.validators.npm import NpmValidator
-from vibewall.validators.url import UrlValidator
+from vibewall.models import RunResult
+from vibewall.validators.runner import CheckRunner
 
 logger = structlog.get_logger()
 
@@ -18,15 +17,9 @@ _NPM_PACKAGE_RE = re.compile(r"^/(@[^/]+/[^/]+|[^@/][^/]*)(?:/|$)")
 
 
 class VibewallAddon:
-    def __init__(
-        self,
-        config: VibewallConfig,
-        npm_validator: NpmValidator,
-        url_validator: UrlValidator,
-    ) -> None:
+    def __init__(self, config: VibewallConfig, runner: CheckRunner) -> None:
         self._config = config
-        self._npm = npm_validator
-        self._url = url_validator
+        self._runner = runner
 
     async def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
@@ -36,44 +29,53 @@ class VibewallAddon:
         if host == "registry.npmjs.org":
             package_name = self._extract_package_name(flow.request.path)
             if package_name:
-                result = await self._npm.validate(package_name)
+                result = await self._runner.run("npm", package_name)
                 self._handle_result(flow, result, "npm", package_name)
                 return
 
-        # Route other URLs through URL validator
-        if self._config.url.enabled:
-            result = await self._url.validate(url)
+        # Route other URLs through URL checks
+        has_url_checks = any(
+            self._config.is_enabled(n)
+            for n in ("url_blocklist", "url_allowlist", "url_dns", "url_domain_age")
+        )
+        if has_url_checks:
+            result = await self._runner.run("url", url)
             self._handle_result(flow, result, "url", url)
 
     def _handle_result(
-        self, flow: http.HTTPFlow, result: ValidationResult, check_type: str, target: str
+        self, flow: http.HTTPFlow, result: RunResult, check_type: str, target: str
     ) -> None:
-        mode = self._config.npm.mode if check_type == "npm" else self._config.url.mode
-
-        if not result.allowed:
+        if result.blocked:
             logger.warning(
-                "request_blocked" if mode == "block" else "request_warned",
+                "request_blocked",
                 type=check_type,
                 target=target,
                 reason=result.reason,
-                mode=mode,
             )
-            if mode == "block":
-                flow.response = http.Response.make(
-                    403,
-                    json.dumps({
-                        "error": "blocked by vibewall",
-                        "reason": result.reason,
-                        "target": target,
-                    }),
-                    {"Content-Type": "application/json"},
-                )
+            flow.response = http.Response.make(
+                403,
+                json.dumps({
+                    "error": "blocked by vibewall",
+                    "reason": result.reason,
+                    "target": target,
+                }),
+                {"Content-Type": "application/json"},
+            )
         else:
-            logger.debug("request_allowed", type=check_type, target=target, reason=result.reason)
+            logger.debug(
+                "request_allowed",
+                type=check_type,
+                target=target,
+                reason=result.reason,
+            )
 
     @staticmethod
     def _extract_package_name(path: str) -> str | None:
         match = _NPM_PACKAGE_RE.match(path)
         if match:
-            return match.group(1)
+            name = match.group(1)
+            # "/-/..." paths are npm API endpoints, not packages
+            if name == "-":
+                return None
+            return name
         return None
