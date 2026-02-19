@@ -10,6 +10,7 @@ from mitmproxy.tools.dump import DumpMaster
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
+from vibewall.console import ConsoleDisplay
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.allowlist import AllowBlockList
 from vibewall.validators.checks import ALL_CHECKS
@@ -50,7 +51,17 @@ def _build_checks(
     return checks
 
 
-async def run_proxy(config: VibewallConfig) -> None:
+def _build_enabled_checks(config: VibewallConfig, runner: CheckRunner) -> dict[str, list[str]]:
+    """Get enabled check names per scope for the display."""
+    enabled: dict[str, list[str]] = {}
+    for scope in ("npm", "url"):
+        names = runner.get_enabled_check_names(scope)
+        if names:
+            enabled[scope] = names
+    return enabled
+
+
+async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     cache = TTLCache(max_entries=config.cache.max_entries)
 
     # Load allow/block lists
@@ -69,7 +80,12 @@ async def run_proxy(config: VibewallConfig) -> None:
     checks = _build_checks(config, npm_lists, url_lists, session)
     runner = CheckRunner(checks, config, cache)
 
-    addon = VibewallAddon(config, runner)
+    # Build console display
+    enabled_checks = _build_enabled_checks(config, runner)
+    display = ConsoleDisplay(enabled_checks, verbose=verbose)
+    display.set_port(config.port)
+
+    addon = VibewallAddon(config, runner, display)
 
     opts = options.Options(
         listen_host=config.host,
@@ -78,6 +94,9 @@ async def run_proxy(config: VibewallConfig) -> None:
     master = DumpMaster(opts)
     master.addons.add(addon)
 
+    # Suppress mitmproxy's built-in Dumper output
+    opts.update(flow_detail=0)
+
     # Copy CA cert to shared volume if it exists
     ca_cert = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
     cert_dest = Path("/certs/mitmproxy-ca-cert.pem")
@@ -85,8 +104,9 @@ async def run_proxy(config: VibewallConfig) -> None:
         shutil.copy2(ca_cert, cert_dest)
         logger.info("ca_cert_copied", dest=str(cert_dest))
 
-    logger.info("proxy_starting", host=config.host, port=config.port)
+    display.start()
     try:
         await master.run()
     finally:
+        display.print_stats()
         await session.close()

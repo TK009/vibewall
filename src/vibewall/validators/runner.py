@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 import structlog
 
 from vibewall.cache.store import TTLCache
@@ -8,7 +11,12 @@ from vibewall.config import VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
 from vibewall.validators.base import BaseCheck
 
+if TYPE_CHECKING:
+    pass
+
 logger = structlog.get_logger()
+
+OnCheckDone = Callable[[str, CheckResult | None], None] | None
 
 # Checks whose FAIL result should short-circuit (stop further checks)
 _BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist"}
@@ -27,16 +35,39 @@ class CheckRunner:
         self._config = config
         self._cache = cache
 
-    async def run(self, scope: str, target: str) -> RunResult:
+    def get_enabled_check_names(self, scope: str) -> list[str]:
+        """Return ordered list of enabled check names for a scope."""
+        enabled = self._get_enabled_checks(scope)
+        scope_order = {
+            "npm": [
+                "npm_blocklist", "npm_allowlist", "npm_registry",
+                "npm_existence", "npm_typosquat", "npm_age", "npm_downloads",
+            ],
+            "url": [
+                "url_blocklist", "url_allowlist", "url_dns", "url_domain_age",
+            ],
+        }
+        order = scope_order.get(scope, [])
+        names = {c.name for c in enabled}
+        return [n for n in order if n in names]
+
+    async def run(
+        self,
+        scope: str,
+        target: str,
+        on_check_done: OnCheckDone = None,
+    ) -> RunResult:
         enabled = self._get_enabled_checks(scope)
         if not enabled:
             return RunResult(
                 allowed=True, reason="no checks configured", results=[]
             )
 
+        all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
         context = CheckContext()
         all_results: list[tuple[str, CheckResult]] = []
+        completed_names: set[str] = set()
 
         for layer in layers:
             # Check cache first
@@ -46,6 +77,9 @@ class CheckRunner:
                 if cached is not None:
                     all_results.append((check.name, cached))
                     context.add(check.name, cached)
+                    completed_names.add(check.name)
+                    if on_check_done:
+                        on_check_done(check.name, cached)
                 else:
                     to_run.append(check)
 
@@ -56,8 +90,11 @@ class CheckRunner:
                 for check, result in zip(to_run, results):
                     all_results.append((check.name, result))
                     context.add(check.name, result)
+                    completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
                     self._cache.set(f"{check.name}:{target}", result, ttl)
+                    if on_check_done:
+                        on_check_done(check.name, result)
 
             # Short-circuit evaluation after each layer
             for check in layer:
@@ -65,6 +102,10 @@ class CheckRunner:
                 if result is None:
                     continue
                 if self._should_short_circuit(check.name, result):
+                    # Signal skipped checks
+                    if on_check_done:
+                        for name in all_enabled_names - completed_names:
+                            on_check_done(name, None)
                     return self._finalize(all_results, short_circuit=(check.name, result))
 
         return self._finalize(all_results)

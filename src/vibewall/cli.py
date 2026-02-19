@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import click
@@ -15,15 +16,19 @@ from vibewall.proxy.server import run_proxy
 @click.option("--host", "-H", default=None, help="Proxy listen host")
 @click.option("--config", "-c", "config_path", default=None, type=click.Path(exists=False), help="Path to vibewall.toml")
 @click.option("--config-dir", default=None, type=click.Path(), help="Directory containing allowlist/blocklist")
-def main(port: int | None, host: str | None, config_path: str | None, config_dir: str | None) -> None:
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Verbose output (show debug logs)")
+def main(port: int | None, host: str | None, config_path: str | None, config_dir: str | None, verbose: bool) -> None:
     """Vibewall — Hallucination firewall for AI coding agents."""
+    log_level = logging.DEBUG if verbose else logging.WARNING
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
             structlog.dev.ConsoleRenderer(),
         ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
     )
-    log = structlog.get_logger()
+    logging.basicConfig(level=log_level, format="%(message)s", handlers=[logging.StreamHandler()])
 
     cfg_path = Path(config_path) if config_path else None
     config = VibewallConfig.load(cfg_path)
@@ -36,14 +41,7 @@ def main(port: int | None, host: str | None, config_path: str | None, config_dir
     if config_dir is not None:
         config.config_dir = Path(config_dir)
 
-    log.info(
-        "vibewall_config",
-        port=config.port,
-        host=config.host,
-        validators=list(config.validators.keys()),
-    )
-
-    asyncio.run(run_proxy(config))
+    asyncio.run(run_proxy(config, verbose=verbose))
 
 
 if __name__ == "__main__":
