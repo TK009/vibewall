@@ -77,6 +77,8 @@ class CheckRunner:
     ) -> RunResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
+        # context keeps raw results (dependencies need original FAIL status),
+        # all_results keeps display results (FAIL downgraded to SUS for warns).
         context = CheckContext()
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()

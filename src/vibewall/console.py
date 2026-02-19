@@ -39,8 +39,8 @@ _LEGEND_INTERVAL = 30  # re-print column headers every N lines (approx terminal 
 
 
 def _prefix_width(scope: str) -> int:
-    """Width of 'I scope ' + target + ' ' (icon=2w + scope=4 + sp + target + sp)."""
-    return 7 + _TARGET_WIDTH.get(scope, 14)
+    """Chars before the first check cell: icon(1) + ' scope '(6) + target(W) + ' '(1)."""
+    return 8 + _TARGET_WIDTH.get(scope, 14)
 
 
 @dataclass
@@ -218,9 +218,7 @@ class ConsoleDisplay:
         return str(getattr(self, "_port", 7777))
 
     def _print_legend(self) -> None:
-        """Print per-scope legend lines aligned to each scope's cell start."""
-        # Compute cumulative prefix: each scope's cells start after all
-        # previous scopes' prefix + cells.
+        """Print per-scope legend lines. Each scope is its own row."""
         for scope in ("npm", "url"):
             cols = self._columns.get(scope, [])
             if not cols:

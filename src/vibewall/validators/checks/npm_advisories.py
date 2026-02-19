@@ -3,12 +3,9 @@ from __future__ import annotations
 import asyncio
 
 import aiohttp
-import structlog
 
 from vibewall.models import CheckContext, CheckResult
 from vibewall.validators.base import BaseCheck
-
-logger = structlog.get_logger()
 
 # Severity levels in ascending order of restrictiveness
 _SEVERITY_ORDER = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}
@@ -89,10 +86,8 @@ class NpmAdvisoriesCheck(BaseCheck):
                     )
                 data = await resp.json()
         except asyncio.TimeoutError:
-            logger.warning("npm_advisories_timeout", package=target)
             return CheckResult.err("advisory lookup timed out")
         except aiohttp.ClientError as e:
-            logger.warning("npm_advisories_error", package=target, error=str(e))
             return CheckResult.err(f"advisory lookup failed: {e}")
 
         vulns = data.get("vulns", [])
