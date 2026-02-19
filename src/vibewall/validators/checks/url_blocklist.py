@@ -7,6 +7,7 @@ from vibewall.validators.base import BaseCheck
 
 class UrlBlocklistCheck(BaseCheck):
     name = "url_blocklist"
+    abbrev = "BLK"
     depends_on: list[str] = []
     scope = "url"
 

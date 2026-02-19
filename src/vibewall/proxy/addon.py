@@ -30,6 +30,7 @@ class VibewallAddon:
         self._config = config
         self._runner = runner
         self._display = display
+        self._flow_to_req: dict[str, str] = {}  # flow.id → req_id
 
     async def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
@@ -39,7 +40,7 @@ class VibewallAddon:
         if host == "registry.npmjs.org":
             package_name = self._extract_package_name(flow.request.path)
             if package_name:
-                result = await self._run_with_display("npm", package_name)
+                result = await self._run_with_display(flow, "npm", package_name)
                 self._handle_result(flow, result, "npm", package_name)
                 return
 
@@ -49,21 +50,39 @@ class VibewallAddon:
             for n in ("url_blocklist", "url_allowlist", "url_dns", "url_domain_age")
         )
         if has_url_checks:
-            result = await self._run_with_display("url", url)
+            result = await self._run_with_display(flow, "url", url)
             self._handle_result(flow, result, "url", url)
 
-    async def _run_with_display(self, scope: str, target: str) -> RunResult:
+    def response(self, flow: http.HTTPFlow) -> None:
+        if self._display is None:
+            return
+        req_id = self._flow_to_req.pop(flow.id, None)
+        if req_id is None:
+            return
+        self._display.update_status_code(req_id, flow.response.status_code)
+        self._display.finish_request(req_id)
+
+    async def _run_with_display(self, flow: http.HTTPFlow, scope: str, target: str) -> RunResult:
         """Run checks, updating the console display if available."""
         if self._display is None:
             return await self._runner.run(scope, target)
 
         req_id = self._display.begin_request(scope, target)
+        self._flow_to_req[flow.id] = req_id
         result = await self._runner.run(
             scope,
             target,
             on_check_done=lambda name, r: self._display.update_check(req_id, name, r),
         )
-        self._display.finish_request(req_id, result)
+        self._display.set_run_result(req_id, result)
+
+        if result.blocked:
+            # Blocked requests won't get a response() hook from upstream,
+            # so finalize immediately with the 403 we're about to set.
+            self._display.update_status_code(req_id, 403)
+            self._display.finish_request(req_id)
+            del self._flow_to_req[flow.id]
+
         return result
 
     def _handle_result(

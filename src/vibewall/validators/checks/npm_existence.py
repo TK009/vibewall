@@ -6,6 +6,7 @@ from vibewall.validators.base import BaseCheck
 
 class NpmExistenceCheck(BaseCheck):
     name = "npm_existence"
+    abbrev = "EXI"
     depends_on = ["npm_registry"]
     scope = "npm"
 

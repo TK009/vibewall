@@ -7,6 +7,7 @@ from vibewall.validators.base import BaseCheck
 
 class NpmBlocklistCheck(BaseCheck):
     name = "npm_blocklist"
+    abbrev = "BLK"
     depends_on: list[str] = []
     scope = "npm"
 

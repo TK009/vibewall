@@ -11,6 +11,7 @@ _MIN_TYPOSQUAT_NAME_LEN = 6
 
 class NpmTyposquatCheck(BaseCheck):
     name = "npm_typosquat"
+    abbrev = "TYP"
     depends_on = ["npm_registry", "npm_allowlist"]
     scope = "npm"
 

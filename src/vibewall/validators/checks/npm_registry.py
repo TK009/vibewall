@@ -14,6 +14,7 @@ logger = structlog.get_logger()
 
 class NpmRegistryCheck(BaseCheck):
     name = "npm_registry"
+    abbrev = "REG"
     depends_on: list[str] = []
     scope = "npm"
 

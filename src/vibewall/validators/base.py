@@ -7,6 +7,7 @@ from vibewall.models import CheckContext, CheckResult
 
 class BaseCheck(ABC):
     name: str
+    abbrev: str = "???"
     depends_on: list[str] = []
     scope: str  # "npm" or "url"
 

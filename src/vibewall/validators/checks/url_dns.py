@@ -14,6 +14,7 @@ logger = structlog.get_logger()
 
 class UrlDnsCheck(BaseCheck):
     name = "url_dns"
+    abbrev = "DNS"
     depends_on: list[str] = []
     scope = "url"
 

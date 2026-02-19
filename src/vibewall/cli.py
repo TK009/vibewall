@@ -12,7 +12,7 @@ from vibewall.proxy.server import run_proxy
 
 
 @click.command()
-@click.option("--port", "-p", default=None, type=int, help="Proxy listen port")
+@click.option("--port", "-p", default=None, type=click.IntRange(1, 65535), help="Proxy listen port")
 @click.option("--host", "-H", default=None, help="Proxy listen host")
 @click.option("--config", "-c", "config_path", default=None, type=click.Path(exists=False), help="Path to vibewall.toml")
 @click.option("--config-dir", default=None, type=click.Path(), help="Directory containing allowlist/blocklist")

@@ -46,7 +46,7 @@ def _build_checks(
         try:
             checks.append(cls(**kwargs_map[cls.name]))
         except TypeError as e:
-            logger.warning("check_init_failed", check=cls.name, error=str(e))
+            logger.error("check_init_skipped", check=cls.name, error=str(e))
 
     return checks
 

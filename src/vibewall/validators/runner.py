@@ -10,6 +10,7 @@ from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
 from vibewall.validators.base import BaseCheck
+from vibewall.validators.checks import SCOPE_ORDER
 
 if TYPE_CHECKING:
     pass
@@ -22,6 +23,9 @@ OnCheckDone = Callable[[str, CheckResult | None], None] | None
 _BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist"}
 # Checks whose OK result should short-circuit (target is trusted)
 _ALLOWLIST_CHECKS = {"npm_allowlist", "url_allowlist"}
+
+# Maximum time for the entire check pipeline per request
+_PIPELINE_TIMEOUT = 30  # seconds
 
 
 class CheckRunner:
@@ -38,16 +42,7 @@ class CheckRunner:
     def get_enabled_check_names(self, scope: str) -> list[str]:
         """Return ordered list of enabled check names for a scope."""
         enabled = self._get_enabled_checks(scope)
-        scope_order = {
-            "npm": [
-                "npm_blocklist", "npm_allowlist", "npm_registry",
-                "npm_existence", "npm_typosquat", "npm_age", "npm_downloads",
-            ],
-            "url": [
-                "url_blocklist", "url_allowlist", "url_dns", "url_domain_age",
-            ],
-        }
-        order = scope_order.get(scope, [])
+        order = SCOPE_ORDER.get(scope, [])
         names = {c.name for c in enabled}
         return [n for n in order if n in names]
 
@@ -63,6 +58,26 @@ class CheckRunner:
                 allowed=True, reason="no checks configured", results=[]
             )
 
+        try:
+            return await asyncio.wait_for(
+                self._run_checks(enabled, target, on_check_done),
+                timeout=_PIPELINE_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "pipeline_timeout", scope=scope, target=target,
+                timeout=_PIPELINE_TIMEOUT,
+            )
+            return RunResult(
+                allowed=True, reason="pipeline timed out, failing open", results=[]
+            )
+
+    async def _run_checks(
+        self,
+        enabled: list[BaseCheck],
+        target: str,
+        on_check_done: OnCheckDone = None,
+    ) -> RunResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
         context = CheckContext()
@@ -78,8 +93,7 @@ class CheckRunner:
                     all_results.append((check.name, cached))
                     context.add(check.name, cached)
                     completed_names.add(check.name)
-                    if on_check_done:
-                        on_check_done(check.name, cached)
+                    self._notify(on_check_done, check.name, cached)
                 else:
                     to_run.append(check)
 
@@ -93,8 +107,7 @@ class CheckRunner:
                     completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
                     self._cache.set(f"{check.name}:{target}", result, ttl)
-                    if on_check_done:
-                        on_check_done(check.name, result)
+                    self._notify(on_check_done, check.name, result)
 
             # Short-circuit evaluation after each layer
             for check in layer:
@@ -103,12 +116,24 @@ class CheckRunner:
                     continue
                 if self._should_short_circuit(check.name, result):
                     # Signal skipped checks
-                    if on_check_done:
-                        for name in all_enabled_names - completed_names:
-                            on_check_done(name, None)
+                    for name in all_enabled_names - completed_names:
+                        self._notify(on_check_done, name, None)
                     return self._finalize(all_results, short_circuit=(check.name, result))
 
         return self._finalize(all_results)
+
+    @staticmethod
+    def _notify(
+        on_check_done: OnCheckDone,
+        name: str,
+        result: CheckResult | None,
+    ) -> None:
+        if on_check_done is None:
+            return
+        try:
+            on_check_done(name, result)
+        except Exception:
+            logger.exception("on_check_done_callback_error", check=name)
 
     def _get_enabled_checks(self, scope: str) -> list[BaseCheck]:
         """Get checks for the given scope that are enabled or needed as deps."""
@@ -150,7 +175,11 @@ class CheckRunner:
         while remaining:
             layer_names = [n for n in remaining if in_degree[n] == 0]
             if not layer_names:
-                # Cycle — run everything left (shouldn't happen)
+                # Cycle detected — log warning and run everything left
+                logger.warning(
+                    "check_dependency_cycle",
+                    remaining=[check_map[n].name for n in remaining],
+                )
                 layers.append([check_map[n] for n in remaining])
                 break
 
@@ -177,8 +206,7 @@ class CheckRunner:
             return True
         # Allowlist OK → stop (target is trusted)
         if check_name in _ALLOWLIST_CHECKS and result.status == CheckStatus.OK:
-            # Only short-circuit if the target was actually allowlisted
-            if result.data.get("allowlisted", False) or "allowlisted" in result.reason:
+            if result.data.get("allowlisted", False):
                 return True
         return False
 

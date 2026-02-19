@@ -14,6 +14,7 @@ logger = structlog.get_logger()
 
 class UrlDomainAgeCheck(BaseCheck):
     name = "url_domain_age"
+    abbrev = "AGE"
     depends_on = ["url_dns"]
     scope = "url"
 
@@ -44,6 +45,6 @@ class UrlDomainAgeCheck(BaseCheck):
             return CheckResult.ok(f"domain age: {age_days} days")
         except asyncio.TimeoutError:
             return CheckResult.err("WHOIS timed out, failing open")
-        except Exception as e:
-            logger.warning("whois_error", domain=domain, error=str(e))
+        except Exception as e:  # whois lib raises varied exceptions
+            logger.warning("whois_error", domain=domain, error=type(e).__name__, detail=str(e))
             return CheckResult.err(f"WHOIS error: {e}, failing open")

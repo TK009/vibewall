@@ -8,6 +8,7 @@ from vibewall.validators.base import BaseCheck
 
 class NpmAgeCheck(BaseCheck):
     name = "npm_age"
+    abbrev = "AGE"
     depends_on = ["npm_registry"]
     scope = "npm"
 
@@ -20,7 +21,7 @@ class NpmAgeCheck(BaseCheck):
         created_str = time_data.get("created")
 
         if not created_str:
-            return CheckResult.ok("no creation date available, passing")
+            return CheckResult.err("no creation date in registry data")
 
         created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
         age_days = (datetime.now(timezone.utc) - created).days

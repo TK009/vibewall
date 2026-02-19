@@ -10,32 +10,10 @@ from rich.live import Live
 from rich.text import Text
 
 from vibewall.models import CheckResult, CheckStatus, RunResult
+from vibewall.validators.checks import CHECK_ABBREVS, SCOPE_ORDER
 
-# Maps check names → 3-char column abbreviations
-_CHECK_ABBREV: dict[str, str] = {
-    "npm_blocklist": "BLK",
-    "npm_allowlist": "ALW",
-    "npm_registry": "REG",
-    "npm_existence": "EXI",
-    "npm_typosquat": "TYP",
-    "npm_age": "AGE",
-    "npm_downloads": " DL",
-    "url_blocklist": "BLK",
-    "url_allowlist": "ALW",
-    "url_dns": "DNS",
-    "url_domain_age": "AGE",
-}
-
-# Canonical column order per scope
-_SCOPE_ORDER: dict[str, list[str]] = {
-    "npm": [
-        "npm_blocklist", "npm_allowlist", "npm_registry",
-        "npm_existence", "npm_typosquat", "npm_age", "npm_downloads",
-    ],
-    "url": [
-        "url_blocklist", "url_allowlist", "url_dns", "url_domain_age",
-    ],
-}
+# Scope-dependent target column widths
+_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 30}
 
 # Status → 4-char cell text
 _STATUS_CELL: dict[CheckStatus, str] = {
@@ -56,6 +34,13 @@ _STATUS_STYLE: dict[CheckStatus, str] = {
 _CELL_WIDTH = 5  # 4 chars + 1 space separator
 _PENDING_CELL = "  ··"
 _SKIPPED_CELL = "   —"
+_STATUS_CODE_WIDTH = 5  # "  200", "  403", "  ···"
+_LEGEND_INTERVAL = 30
+
+
+def _prefix_width(scope: str) -> int:
+    """Width of '✓ npm  ' + target + ' ' = 2 + 4 + 1 + target_width + 1."""
+    return 7 + _TARGET_WIDTH.get(scope, 14)
 
 
 @dataclass
@@ -64,6 +49,8 @@ class _ActiveRequest:
     target: str
     start_time: float
     cells: dict[str, CheckResult | None] = field(default_factory=dict)
+    run_result: RunResult | None = None
+    status_code: int | None = None
 
 
 class ConsoleDisplay:
@@ -88,41 +75,18 @@ class ConsoleDisplay:
         self._blocked = 0
         self._errors = 0
 
+        # Legend repeat counter
+        self._lines_since_legend: int = 0
+
         # Build ordered columns per scope (only enabled ones)
         self._columns: dict[str, list[str]] = {}
-        for scope, order in _SCOPE_ORDER.items():
+        for scope, order in SCOPE_ORDER.items():
             self._columns[scope] = [c for c in order if c in enabled_checks.get(scope, [])]
 
     def start(self) -> None:
         """Print startup banner and start Live region."""
         self._console.print(f"\n[bold]vibewall[/bold] v0.1.0 on :{self._port_hint()}")
-
-        # Validator column headers
-        header = Text("validators: ")
-        scope_line = Text("            ")
-        any_cols = False
-        for scope in ("npm", "url"):
-            cols = self._columns.get(scope, [])
-            if not cols:
-                continue
-            if any_cols:
-                header.append(" | ", style="dim")
-                scope_line.append("   ", style="dim")
-            for col_name in cols:
-                abbrev = _CHECK_ABBREV.get(col_name, col_name[:3].upper())
-                header.append(f"{abbrev:>4} ", style="dim bold")
-            scope_width = len(cols) * _CELL_WIDTH
-            label = f" {scope} "
-            dashes_total = scope_width - len(label)
-            left = dashes_total // 2
-            right = dashes_total - left
-            scope_line.append("─" * left + label + "─" * right + " ", style="dim")
-            any_cols = True
-
-        if any_cols:
-            self._console.print(header)
-            self._console.print(scope_line)
-
+        self._print_legend()
         self._console.print("─" * self._console.width, style="dim")
 
         if self._is_tty:
@@ -156,11 +120,33 @@ class ConsoleDisplay:
             req.cells[check_name] = result
             self._refresh_live()
 
-    def finish_request(self, request_id: str, run_result: RunResult) -> None:
+    def set_run_result(self, request_id: str, run_result: RunResult) -> None:
+        """Store the completed run result without finalizing the line."""
+        with self._lock:
+            req = self._active.get(request_id)
+            if req is None:
+                return
+            req.run_result = run_result
+            self._refresh_live()
+
+    def update_status_code(self, request_id: str, code: int) -> None:
+        """Set the HTTP status code for a request."""
+        with self._lock:
+            req = self._active.get(request_id)
+            if req is None:
+                return
+            req.status_code = code
+            self._refresh_live()
+
+    def finish_request(self, request_id: str) -> None:
         """Move completed request from live region to scrollback."""
         with self._lock:
             req = self._active.pop(request_id, None)
             if req is None:
+                return
+
+            run_result = req.run_result
+            if run_result is None:
                 return
 
             elapsed_ms = (time.monotonic() - req.start_time) * 1000
@@ -180,10 +166,12 @@ class ConsoleDisplay:
 
             line = self._build_completed_line(req, run_result, ran_checks, elapsed_ms)
 
-            if self._is_tty and self._live is not None:
-                self._console.print(line)
-            else:
-                self._console.print(line)
+            self._console.print(line)
+            self._lines_since_legend += 1
+
+            if self._lines_since_legend >= _LEGEND_INTERVAL:
+                self._print_legend()
+                self._lines_since_legend = 0
 
             self._refresh_live()
 
@@ -209,10 +197,7 @@ class ConsoleDisplay:
         text = f"[{style}]{level.upper():>5}[/{style}] {message}"
         if extra:
             text += f" [dim]{extra}[/dim]"
-        if self._is_tty and self._live is not None:
-            self._console.print(text)
-        else:
-            self._console.print(text)
+        self._console.print(text)
 
     def set_port(self, port: int) -> None:
         """Set the port for the startup banner (called before start)."""
@@ -221,6 +206,39 @@ class ConsoleDisplay:
     def _port_hint(self) -> str:
         return str(getattr(self, "_port", 7777))
 
+    def _print_legend(self) -> None:
+        """Print per-scope legend lines aligned to each scope's cell start."""
+        # Compute cumulative prefix: each scope's cells start after all
+        # previous scopes' prefix + cells.
+        offset = 0
+        for scope in ("npm", "url"):
+            cols = self._columns.get(scope, [])
+            if not cols:
+                continue
+
+            pw = _prefix_width(scope)
+            pad = " " * (offset + pw)
+
+            # Abbreviation header line
+            abbrev_line = Text(pad)
+            for col_name in cols:
+                abbrev = CHECK_ABBREVS.get(col_name, col_name[:3].upper())
+                abbrev_line.append(f"{abbrev:>4} ", style="dim bold")
+            self._console.print(abbrev_line)
+
+            # Scope underline
+            scope_width = len(cols) * _CELL_WIDTH + _STATUS_CODE_WIDTH
+            label = f" {scope} "
+            dashes_total = scope_width - len(label)
+            left = dashes_total // 2
+            right = dashes_total - left
+            scope_line = Text(pad)
+            scope_line.append("─" * left + label + "─" * right, style="dim")
+            self._console.print(scope_line)
+
+            # Next scope's lines need to account for this scope's prefix + cells
+            offset += pw + len(cols) * _CELL_WIDTH + _STATUS_CODE_WIDTH
+
     def _build_completed_line(
         self,
         req: _ActiveRequest,
@@ -228,11 +246,12 @@ class ConsoleDisplay:
         ran_checks: set[str],
         elapsed_ms: float,
     ) -> Text:
-        """Build the completed request display line(s)."""
+        """Build the completed request display line."""
         icon = "✓" if run_result.allowed else "✗"
         icon_style = "green" if run_result.allowed else "bold red"
 
         target_display = self._format_target(req.scope, req.target)
+        max_target_w = _TARGET_WIDTH.get(req.scope, 14)
 
         line = Text()
         line.append(icon, style=icon_style)
@@ -240,8 +259,6 @@ class ConsoleDisplay:
 
         cols = self._columns.get(req.scope, [])
         if cols:
-            # Target column: truncate to fit before cells
-            max_target_w = 14
             if len(target_display) > max_target_w:
                 target_display = target_display[: max_target_w - 1] + "…"
             line.append(f"{target_display:<{max_target_w}} ", style="")
@@ -262,6 +279,9 @@ class ConsoleDisplay:
                     line.append(f"{_SKIPPED_CELL} ", style="dim")
                 else:
                     line.append(f"{_SKIPPED_CELL} ", style="dim")
+
+            # Status code
+            line.append(self._format_status_code(req.status_code))
         else:
             line.append(target_display, style="")
 
@@ -277,6 +297,7 @@ class ConsoleDisplay:
     def _build_active_line(self, req: _ActiveRequest) -> Text:
         """Build a single-line display for an active (in-progress) request."""
         target_display = self._format_target(req.scope, req.target)
+        max_target_w = _TARGET_WIDTH.get(req.scope, 14)
 
         line = Text()
         line.append("▸ ", style="bold yellow")
@@ -284,7 +305,6 @@ class ConsoleDisplay:
 
         cols = self._columns.get(req.scope, [])
         if cols:
-            max_target_w = 14
             if len(target_display) > max_target_w:
                 target_display = target_display[: max_target_w - 1] + "…"
             line.append(f"{target_display:<{max_target_w}} ", style="")
@@ -297,10 +317,29 @@ class ConsoleDisplay:
                     line.append(f"{cell_text} ", style=cell_style)
                 else:
                     line.append(f"{_PENDING_CELL} ", style="dim")
+
+            # Status code placeholder
+            if req.status_code is not None:
+                line.append(self._format_status_code(req.status_code))
+            else:
+                line.append(f"{'···':>5}", style="dim")
         else:
             line.append(target_display, style="")
 
         return line
+
+    def _format_status_code(self, code: int | None) -> Text:
+        """Format an HTTP status code as a 5-char Text fragment."""
+        t = Text()
+        if code is None:
+            t.append(f"{'···':>5}", style="dim")
+        elif 200 <= code < 300:
+            t.append(f"{code:>5}", style="green")
+        elif 300 <= code < 400:
+            t.append(f"{code:>5}", style="yellow")
+        else:
+            t.append(f"{code:>5}", style="red")
+        return t
 
     def _refresh_live(self) -> None:
         """Update the Live region with all active requests."""
@@ -312,7 +351,7 @@ class ConsoleDisplay:
             return
 
         combined = Text()
-        for i, req in enumerate(self._active.values()):
+        for i, req in enumerate(list(self._active.values())):
             if i > 0:
                 combined.append("\n")
             combined.append_text(self._build_active_line(req))

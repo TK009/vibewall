@@ -27,4 +27,12 @@ ALL_CHECKS: list[type[BaseCheck]] = [
     UrlDomainAgeCheck,
 ]
 
-__all__ = ["ALL_CHECKS"]
+# Canonical check ordering per scope (single source of truth)
+SCOPE_ORDER: dict[str, list[str]] = {}
+for _cls in ALL_CHECKS:
+    SCOPE_ORDER.setdefault(_cls.scope, []).append(_cls.name)
+
+# Maps check name → abbreviation (from class attributes)
+CHECK_ABBREVS: dict[str, str] = {_cls.name: _cls.abbrev for _cls in ALL_CHECKS}
+
+__all__ = ["ALL_CHECKS", "SCOPE_ORDER", "CHECK_ABBREVS"]

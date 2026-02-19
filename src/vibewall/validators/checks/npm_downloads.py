@@ -14,6 +14,7 @@ logger = structlog.get_logger()
 
 class NpmDownloadsCheck(BaseCheck):
     name = "npm_downloads"
+    abbrev = " DL"
     depends_on: list[str] = []
     scope = "npm"
 

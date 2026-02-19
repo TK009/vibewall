@@ -7,6 +7,7 @@ from vibewall.validators.base import BaseCheck
 
 class NpmAllowlistCheck(BaseCheck):
     name = "npm_allowlist"
+    abbrev = "ALW"
     depends_on: list[str] = []
     scope = "npm"
 
