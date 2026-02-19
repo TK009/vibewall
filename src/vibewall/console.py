@@ -13,22 +13,22 @@ from vibewall.models import CheckResult, CheckStatus, RunResult
 from vibewall.validators.checks import CHECK_ABBREVS, SCOPE_ORDER
 
 # Scope-dependent target column widths
-_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 30}
+_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40}
 
 # Status → 4-char cell text
 _STATUS_CELL: dict[CheckStatus, str] = {
-    CheckStatus.OK:   "  OK",
+    CheckStatus.OK: "  OK",
     CheckStatus.FAIL: "FAIL",
-    CheckStatus.SUS:  " SUS",
-    CheckStatus.ERR:  " ERR",
+    CheckStatus.SUS: " SUS",
+    CheckStatus.ERR: " ERR",
 }
 
 # Status → rich style
 _STATUS_STYLE: dict[CheckStatus, str] = {
-    CheckStatus.OK:   "green",
+    CheckStatus.OK: "green",
     CheckStatus.FAIL: "bold red",
-    CheckStatus.SUS:  "yellow",
-    CheckStatus.ERR:  "magenta",
+    CheckStatus.SUS: "yellow",
+    CheckStatus.ERR: "magenta",
 }
 
 _CELL_WIDTH = 5  # 4 chars + 1 space separator
@@ -81,7 +81,9 @@ class ConsoleDisplay:
         # Build ordered columns per scope (only enabled ones)
         self._columns: dict[str, list[str]] = {}
         for scope, order in SCOPE_ORDER.items():
-            self._columns[scope] = [c for c in order if c in enabled_checks.get(scope, [])]
+            self._columns[scope] = [
+                c for c in order if c in enabled_checks.get(scope, [])
+            ]
 
     def start(self) -> None:
         """Print startup banner and start Live region."""
@@ -111,7 +113,9 @@ class ConsoleDisplay:
             self._refresh_live()
         return req_id
 
-    def update_check(self, request_id: str, check_name: str, result: CheckResult | None) -> None:
+    def update_check(
+        self, request_id: str, check_name: str, result: CheckResult | None
+    ) -> None:
         """Fill in one cell for an active request."""
         with self._lock:
             req = self._active.get(request_id)
@@ -185,13 +189,20 @@ class ConsoleDisplay:
         parts.append(f"[green]{self._allowed} allowed[/green]")
         parts.append(f"[red]{self._blocked} blocked[/red]")
         if self._errors:
-            parts.append(f"[magenta]{self._errors} error{'s' if self._errors != 1 else ''}[/magenta]")
+            parts.append(
+                f"[magenta]{self._errors} error{'s' if self._errors != 1 else ''}[/magenta]"
+            )
         summary = " · ".join(parts)
         self._console.print(f"\n── {summary} ──")
 
     def log(self, level: str, message: str, **kwargs: object) -> None:
         """Print a general log message."""
-        style_map = {"warning": "yellow", "error": "red", "info": "blue", "debug": "dim"}
+        style_map = {
+            "warning": "yellow",
+            "error": "red",
+            "info": "blue",
+            "debug": "dim",
+        }
         style = style_map.get(level, "")
         extra = " ".join(f"{k}={v}" for k, v in kwargs.items()) if kwargs else ""
         text = f"[{style}]{level.upper():>5}[/{style}] {message}"
@@ -210,14 +221,13 @@ class ConsoleDisplay:
         """Print per-scope legend lines aligned to each scope's cell start."""
         # Compute cumulative prefix: each scope's cells start after all
         # previous scopes' prefix + cells.
-        offset = 0
         for scope in ("npm", "url"):
             cols = self._columns.get(scope, [])
             if not cols:
                 continue
 
             pw = _prefix_width(scope)
-            pad = " " * (offset + pw)
+            pad = " " * pw
 
             # Abbreviation header line
             abbrev_line = Text(pad)
@@ -235,9 +245,6 @@ class ConsoleDisplay:
             scope_line = Text(pad)
             scope_line.append("─" * left + label + "─" * right, style="dim")
             self._console.print(scope_line)
-
-            # Next scope's lines need to account for this scope's prefix + cells
-            offset += pw + len(cols) * _CELL_WIDTH + _STATUS_CODE_WIDTH
 
     def _build_completed_line(
         self,
@@ -288,9 +295,20 @@ class ConsoleDisplay:
         # Elapsed time
         line.append(f" {elapsed_ms:>5.0f}ms", style="dim")
 
-        # Reason for blocked/failed requests
+        # Reason / warnings / errors on the same line
         if run_result.blocked:
+            # Blocked: fail reason is most important
             line.append(f"  {run_result.reason}", style="red")
+            # Show errors after fail reason (fail-close: fail > error)
+            for err in run_result.errors:
+                line.append(f"  {err}", style="magenta")
+        else:
+            # Allowed: show errors first (fail-open: error is notable),
+            # then warnings
+            for err in run_result.errors:
+                line.append(f"  {err}", style="magenta")
+            for warn in run_result.warnings:
+                line.append(f"  {warn}", style="yellow")
 
         return line
 
@@ -360,6 +378,10 @@ class ConsoleDisplay:
 
     def _format_target(self, scope: str, target: str) -> str:
         """Format target for display. npm shows package name, url shows URL."""
-        if scope == "npm" and not self._verbose:
-            return target  # Already just the package name
+        if scope == "url":
+            # Strip protocol to save space
+            for prefix in ("https://", "http://"):
+                if target.startswith(prefix):
+                    target = target[len(prefix) :]
+                    break
         return target

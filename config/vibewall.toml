@@ -15,17 +15,26 @@ cache_ttl = 86400
 action = "block"
 
 [validators.npm_typosquat]
-action = "block"
+action = "warn"
 max_distance = 2
 
 [validators.npm_age]
 action = "block"
 min_days = 7
+missing_date = "fail"
 
 [validators.npm_downloads]
 action = "warn"
 min_weekly = 10
 cache_ttl = 86400
+
+[validators.npm_advisories]
+action = "block"
+severity_low = "allow"
+severity_medium = "warn"
+severity_high = "warn"
+severity_critical = "block"
+cache_ttl = 3600
 
 [validators.url_blocklist]
 action = "block"

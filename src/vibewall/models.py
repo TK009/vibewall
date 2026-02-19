@@ -61,6 +61,8 @@ class RunResult:
     allowed: bool
     reason: str
     results: list[tuple[str, CheckResult]]  # (check_name, result)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def blocked(self) -> bool:

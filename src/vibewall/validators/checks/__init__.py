@@ -8,6 +8,7 @@ from vibewall.validators.checks.npm_existence import NpmExistenceCheck
 from vibewall.validators.checks.npm_typosquat import NpmTyposquatCheck
 from vibewall.validators.checks.npm_age import NpmAgeCheck
 from vibewall.validators.checks.npm_downloads import NpmDownloadsCheck
+from vibewall.validators.checks.npm_advisories import NpmAdvisoriesCheck
 from vibewall.validators.checks.url_blocklist import UrlBlocklistCheck
 from vibewall.validators.checks.url_allowlist import UrlAllowlistCheck
 from vibewall.validators.checks.url_dns import UrlDnsCheck
@@ -21,6 +22,7 @@ ALL_CHECKS: list[type[BaseCheck]] = [
     NpmTyposquatCheck,
     NpmAgeCheck,
     NpmDownloadsCheck,
+    NpmAdvisoriesCheck,
     UrlBlocklistCheck,
     UrlAllowlistCheck,
     UrlDnsCheck,

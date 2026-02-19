@@ -87,10 +87,11 @@ class CheckRunner:
             for check in layer:
                 cached = self._cache.get(f"{check.name}:{target}")
                 if cached is not None:
-                    all_results.append((check.name, cached))
+                    display = self._maybe_downgrade(check.name, cached)
+                    all_results.append((check.name, display))
                     context.add(check.name, cached)
                     completed_names.add(check.name)
-                    self._notify(on_check_done, check.name, cached)
+                    self._notify(on_check_done, check.name, display)
                 else:
                     to_run.append(check)
 
@@ -99,12 +100,13 @@ class CheckRunner:
                     *[check.run(target, context) for check in to_run]
                 )
                 for check, result in zip(to_run, results):
-                    all_results.append((check.name, result))
+                    display = self._maybe_downgrade(check.name, result)
+                    all_results.append((check.name, display))
                     context.add(check.name, result)
                     completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
                     self._cache.set(f"{check.name}:{target}", result, ttl)
-                    self._notify(on_check_done, check.name, result)
+                    self._notify(on_check_done, check.name, display)
 
             # Short-circuit evaluation after each layer
             for check in layer:
@@ -197,6 +199,16 @@ class CheckRunner:
             return vc.cache_ttl
         return self._config.cache.default_ttl
 
+    def _maybe_downgrade(self, check_name: str, result: CheckResult) -> CheckResult:
+        """Downgrade FAIL → SUS when the validator action is 'warn'."""
+        if result.status != CheckStatus.FAIL:
+            return result
+        vc = self._config.get_validator(check_name)
+        action = result.data.get("action_override") or (vc.action if vc else "block")
+        if action == "warn":
+            return CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
+        return result
+
     def _should_short_circuit(self, check_name: str, result: CheckResult) -> bool:
         # Blocklist FAIL → stop immediately
         if check_name in _BLOCKLIST_CHECKS and result.status == CheckStatus.FAIL:
@@ -227,30 +239,24 @@ class CheckRunner:
 
         blocking_reasons: list[str] = []
         warn_reasons: list[str] = []
+        error_reasons: list[str] = []
 
         for name, result in results:
             if result.status == CheckStatus.FAIL:
-                vc = self._config.get_validator(name)
-                action = vc.action if vc else "block"
-                if action == "block":
-                    blocking_reasons.append(result.reason)
-                else:
-                    warn_reasons.append(result.reason)
-                    logger.warning(
-                        "check_warned", check=name, reason=result.reason
-                    )
+                blocking_reasons.append(result.reason)
+            elif result.status == CheckStatus.SUS:
+                warn_reasons.append(result.reason)
             elif result.status == CheckStatus.ERR:
-                logger.warning("check_error", check=name, reason=result.reason)
+                error_reasons.append(result.reason)
 
         if blocking_reasons:
             return RunResult(
                 allowed=False,
                 reason=blocking_reasons[0],
                 results=results,
+                warnings=warn_reasons,
+                errors=error_reasons,
             )
-
-        if warn_reasons:
-            logger.info("checks_passed_with_warnings", warnings=warn_reasons)
 
         reason = "all checks passed"
         for name, result in reversed(results):
@@ -258,4 +264,10 @@ class CheckRunner:
                 reason = result.reason
                 break
 
-        return RunResult(allowed=True, reason=reason, results=results)
+        return RunResult(
+            allowed=True,
+            reason=reason,
+            results=results,
+            warnings=warn_reasons,
+            errors=error_reasons,
+        )

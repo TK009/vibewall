@@ -35,9 +35,17 @@ _VALIDATOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "npm_allowlist": {"action": "block"},
     "npm_registry": {"action": "warn", "cache_ttl": 86400},
     "npm_existence": {"action": "block"},
-    "npm_typosquat": {"action": "block", "max_distance": 2},
+    "npm_typosquat": {"action": "warn", "max_distance": 2},
     "npm_age": {"action": "block", "min_days": 7, "missing_date": "fail"},
     "npm_downloads": {"action": "warn", "min_weekly": 10, "cache_ttl": 86400},
+    "npm_advisories": {
+        "action": "block",
+        "severity_low": "allow",
+        "severity_medium": "warn",
+        "severity_high": "warn",
+        "severity_critical": "block",
+        "cache_ttl": 3600,
+    },
     "url_blocklist": {"action": "block"},
     "url_allowlist": {"action": "block"},
     "url_dns": {"action": "block"},
@@ -55,7 +63,9 @@ class CacheConfig:
 class VibewallConfig:
     port: int = 7777
     host: str = "0.0.0.0"
-    pipeline_timeout: int = 30  # seconds; max time for entire check pipeline per request
+    pipeline_timeout: int = (
+        30  # seconds; max time for entire check pipeline per request
+    )
     validators: dict[str, ValidatorConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)
     config_dir: Path = field(default_factory=lambda: Path("config"))
@@ -97,14 +107,18 @@ class VibewallConfig:
         cfg.validators = {}
         for name, section in validators_data.items():
             defaults = _VALIDATOR_DEFAULTS.get(name, {})
-            action = _validate_action(section.get("action", defaults.get("action", "block")))
+            action = _validate_action(
+                section.get("action", defaults.get("action", "block"))
+            )
             cache_ttl = section.get("cache_ttl", defaults.get("cache_ttl"))
 
             # Everything except action and cache_ttl goes into params
             params = dict(defaults)
             params.pop("action", None)
             params.pop("cache_ttl", None)
-            params.update({k: v for k, v in section.items() if k not in ("action", "cache_ttl")})
+            params.update(
+                {k: v for k, v in section.items() if k not in ("action", "cache_ttl")}
+            )
 
             cfg.validators[name] = ValidatorConfig(
                 action=action, cache_ttl=cache_ttl, params=params
@@ -123,7 +137,9 @@ def _default_validators() -> dict[str, ValidatorConfig]:
         action = defaults.get("action", "block")
         cache_ttl = defaults.get("cache_ttl")
         params = {k: v for k, v in defaults.items() if k not in ("action", "cache_ttl")}
-        result[name] = ValidatorConfig(action=action, cache_ttl=cache_ttl, params=params)
+        result[name] = ValidatorConfig(
+            action=action, cache_ttl=cache_ttl, params=params
+        )
     return result
 
 
