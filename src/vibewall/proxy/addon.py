@@ -59,7 +59,16 @@ class VibewallAddon:
         req_id = self._flow_to_req.pop(flow.id, None)
         if req_id is None:
             return
-        self._display.update_status_code(req_id, flow.response.status_code)
+        if flow.response is not None:
+            self._display.update_status_code(req_id, flow.response.status_code)
+        self._display.finish_request(req_id)
+
+    def error(self, flow: http.HTTPFlow) -> None:
+        if self._display is None:
+            return
+        req_id = self._flow_to_req.pop(flow.id, None)
+        if req_id is None:
+            return
         self._display.finish_request(req_id)
 
     async def _run_with_display(self, flow: http.HTTPFlow, scope: str, target: str) -> RunResult:

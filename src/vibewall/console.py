@@ -35,11 +35,11 @@ _CELL_WIDTH = 5  # 4 chars + 1 space separator
 _PENDING_CELL = "  ··"
 _SKIPPED_CELL = "   —"
 _STATUS_CODE_WIDTH = 5  # "  200", "  403", "  ···"
-_LEGEND_INTERVAL = 30
+_LEGEND_INTERVAL = 30  # re-print column headers every N lines (approx terminal height)
 
 
 def _prefix_width(scope: str) -> int:
-    """Width of '✓ npm  ' + target + ' ' = 2 + 4 + 1 + target_width + 1."""
+    """Width of 'I scope ' + target + ' ' (icon=2w + scope=4 + sp + target + sp)."""
     return 7 + _TARGET_WIDTH.get(scope, 14)
 
 

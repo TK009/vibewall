@@ -24,10 +24,6 @@ _BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist"}
 # Checks whose OK result should short-circuit (target is trusted)
 _ALLOWLIST_CHECKS = {"npm_allowlist", "url_allowlist"}
 
-# Maximum time for the entire check pipeline per request
-_PIPELINE_TIMEOUT = 30  # seconds
-
-
 class CheckRunner:
     def __init__(
         self,
@@ -58,15 +54,16 @@ class CheckRunner:
                 allowed=True, reason="no checks configured", results=[]
             )
 
+        timeout = self._config.pipeline_timeout
         try:
             return await asyncio.wait_for(
                 self._run_checks(enabled, target, on_check_done),
-                timeout=_PIPELINE_TIMEOUT,
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             logger.error(
                 "pipeline_timeout", scope=scope, target=target,
-                timeout=_PIPELINE_TIMEOUT,
+                timeout=timeout,
             )
             return RunResult(
                 allowed=True, reason="pipeline timed out, failing open", results=[]
@@ -175,8 +172,8 @@ class CheckRunner:
         while remaining:
             layer_names = [n for n in remaining if in_degree[n] == 0]
             if not layer_names:
-                # Cycle detected — log warning and run everything left
-                logger.warning(
+                # Cycle detected — this indicates a programming bug in check dependencies
+                logger.error(
                     "check_dependency_cycle",
                     remaining=[check_map[n].name for n in remaining],
                 )

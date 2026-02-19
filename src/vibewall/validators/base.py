@@ -11,6 +11,13 @@ class BaseCheck(ABC):
     depends_on: list[str] = []
     scope: str  # "npm" or "url"
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if getattr(cls, "abbrev", "???") == "???":
+            raise TypeError(
+                f"{cls.__name__} must define a class-level 'abbrev' attribute"
+            )
+
     @abstractmethod
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         """Run the check. context holds results/data from dependencies."""

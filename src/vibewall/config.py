@@ -36,7 +36,7 @@ _VALIDATOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "npm_registry": {"action": "warn", "cache_ttl": 86400},
     "npm_existence": {"action": "block"},
     "npm_typosquat": {"action": "block", "max_distance": 2},
-    "npm_age": {"action": "block", "min_days": 7},
+    "npm_age": {"action": "block", "min_days": 7, "missing_date": "fail"},
     "npm_downloads": {"action": "warn", "min_weekly": 10, "cache_ttl": 86400},
     "url_blocklist": {"action": "block"},
     "url_allowlist": {"action": "block"},
@@ -55,6 +55,7 @@ class CacheConfig:
 class VibewallConfig:
     port: int = 7777
     host: str = "0.0.0.0"
+    pipeline_timeout: int = 30  # seconds; max time for entire check pipeline per request
     validators: dict[str, ValidatorConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)
     config_dir: Path = field(default_factory=lambda: Path("config"))
@@ -80,6 +81,7 @@ class VibewallConfig:
         cfg = VibewallConfig()
         cfg.port = data.get("port", cfg.port)
         cfg.host = data.get("host", cfg.host)
+        cfg.pipeline_timeout = data.get("pipeline_timeout", cfg.pipeline_timeout)
 
         if "config_dir" in data:
             cfg.config_dir = Path(data["config_dir"])

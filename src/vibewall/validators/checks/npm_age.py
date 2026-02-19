@@ -12,8 +12,9 @@ class NpmAgeCheck(BaseCheck):
     depends_on = ["npm_registry"]
     scope = "npm"
 
-    def __init__(self, min_days: int = 7, **kwargs) -> None:
+    def __init__(self, min_days: int = 7, missing_date: str = "fail", **kwargs) -> None:
         self._min_days = min_days
+        self._missing_date = missing_date  # "pass" or "fail"
 
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         registry_data = context.data("npm_registry").get("registry_data", {})
@@ -21,6 +22,8 @@ class NpmAgeCheck(BaseCheck):
         created_str = time_data.get("created")
 
         if not created_str:
+            if self._missing_date == "pass":
+                return CheckResult.ok("no creation date available, passing")
             return CheckResult.err("no creation date in registry data")
 
         created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
