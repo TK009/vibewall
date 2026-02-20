@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.checks.npm_blocklist import NpmBlocklistCheck
 from vibewall.validators.checks.npm_allowlist import NpmAllowlistCheck
@@ -37,4 +39,12 @@ for _cls in ALL_CHECKS:
 # Maps check name → abbreviation (from class attributes)
 CHECK_ABBREVS: dict[str, str] = {_cls.name: _cls.abbrev for _cls in ALL_CHECKS}
 
-__all__ = ["ALL_CHECKS", "SCOPE_ORDER", "CHECK_ABBREVS"]
+# Default action/cache_ttl per validator (derived from class attributes)
+VALIDATOR_DEFAULTS: dict[str, dict[str, Any]] = {}
+for _cls in ALL_CHECKS:
+    _entry: dict[str, Any] = {"action": _cls.default_action}
+    if _cls.default_cache_ttl is not None:
+        _entry["cache_ttl"] = _cls.default_cache_ttl
+    VALIDATOR_DEFAULTS[_cls.name] = _entry
+
+__all__ = ["ALL_CHECKS", "SCOPE_ORDER", "CHECK_ABBREVS", "VALIDATOR_DEFAULTS"]

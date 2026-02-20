@@ -14,6 +14,7 @@ class NpmTyposquatCheck(BaseCheck):
     abbrev = "TYP"
     depends_on = ["npm_registry", "npm_allowlist"]
     scope = "npm"
+    default_action = "warn"
 
     def __init__(self, lists: AllowBlockList, max_distance: int = 2, **kwargs) -> None:
         self._lists = lists

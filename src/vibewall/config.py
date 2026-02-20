@@ -8,6 +8,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+from vibewall.validators.checks import VALIDATOR_DEFAULTS
+
 _VALID_ACTIONS = {"block", "warn", "ask"}
 
 
@@ -27,30 +29,6 @@ class ValidatorConfig:
 
     def __post_init__(self) -> None:
         _validate_action(self.action)
-
-
-# Default parameters for each validator
-_VALIDATOR_DEFAULTS: dict[str, dict[str, Any]] = {
-    "npm_blocklist": {"action": "block"},
-    "npm_allowlist": {"action": "block"},
-    "npm_registry": {"action": "warn", "cache_ttl": 86400},
-    "npm_existence": {"action": "block"},
-    "npm_typosquat": {"action": "warn", "max_distance": 2},
-    "npm_age": {"action": "block", "min_days": 7, "missing_date": "fail"},
-    "npm_downloads": {"action": "warn", "min_weekly": 10, "cache_ttl": 86400},
-    "npm_advisories": {
-        "action": "block",
-        "severity_low": "allow",
-        "severity_medium": "warn",
-        "severity_high": "warn",
-        "severity_critical": "block",
-        "cache_ttl": 3600,
-    },
-    "url_blocklist": {"action": "block"},
-    "url_allowlist": {"action": "block"},
-    "url_dns": {"action": "block"},
-    "url_domain_age": {"action": "block", "min_days": 30, "cache_ttl": 604800},
-}
 
 
 @dataclass
@@ -106,7 +84,7 @@ class VibewallConfig:
         validators_data = data.get("validators", {})
         cfg.validators = {}
         for name, section in validators_data.items():
-            defaults = _VALIDATOR_DEFAULTS.get(name, {})
+            defaults = VALIDATOR_DEFAULTS.get(name, {})
             action = _validate_action(
                 section.get("action", defaults.get("action", "block"))
             )
@@ -133,7 +111,7 @@ class VibewallConfig:
 
 def _default_validators() -> dict[str, ValidatorConfig]:
     result = {}
-    for name, defaults in _VALIDATOR_DEFAULTS.items():
+    for name, defaults in VALIDATOR_DEFAULTS.items():
         action = defaults.get("action", "block")
         cache_ttl = defaults.get("cache_ttl")
         params = {k: v for k, v in defaults.items() if k not in ("action", "cache_ttl")}

@@ -45,10 +45,7 @@ class VibewallAddon:
                 return
 
         # Route other URLs through URL checks
-        has_url_checks = any(
-            self._config.is_enabled(n)
-            for n in ("url_blocklist", "url_allowlist", "url_dns", "url_domain_age")
-        )
+        has_url_checks = bool(self._runner.get_enabled_check_names("url"))
         if has_url_checks:
             result = await self._run_with_display(flow, "url", url)
             self._handle_result(flow, result, "url", url)

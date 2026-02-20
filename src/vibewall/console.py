@@ -15,7 +15,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from vibewall.models import CheckResult, CheckStatus, RunResult
-from vibewall.validators.checks import CHECK_ABBREVS, SCOPE_ORDER
+from vibewall.validators.checks import SCOPE_ORDER
 
 # Severity → Rich style for advisory display
 _SEVERITY_STYLE: dict[str, str] = {
@@ -86,12 +86,15 @@ class ConsoleDisplay:
     def __init__(
         self,
         enabled_checks: dict[str, list[str]],
+        check_abbrevs: dict[str, str],
         verbose: bool = False,
     ) -> None:
         """
         enabled_checks: {"npm": ["npm_blocklist", ...], "url": ["url_blocklist", ...]}
+        check_abbrevs: maps check name → abbreviation for column headers
         """
         self._enabled = enabled_checks
+        self._check_abbrevs = check_abbrevs
         self._verbose = verbose
         self._console = Console(highlight=False)
         self._is_tty = self._console.is_terminal
@@ -341,7 +344,7 @@ class ConsoleDisplay:
             # Abbreviation header line
             abbrev_line = Text(pad)
             for col_name in cols:
-                abbrev = CHECK_ABBREVS.get(col_name, col_name[:3].upper())
+                abbrev = self._check_abbrevs.get(col_name, col_name[:3].upper())
                 abbrev_line.append(f"{abbrev:>4} ", style="dim bold")
             self._console.print(abbrev_line)
 

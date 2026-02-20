@@ -17,6 +17,8 @@ class NpmDownloadsCheck(BaseCheck):
     abbrev = " DL"
     depends_on: list[str] = []
     scope = "npm"
+    default_action = "warn"
+    default_cache_ttl = 86400
 
     def __init__(
         self, session: aiohttp.ClientSession, min_weekly: int = 10, **kwargs

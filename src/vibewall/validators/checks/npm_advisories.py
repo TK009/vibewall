@@ -54,13 +54,14 @@ class NpmAdvisoriesCheck(BaseCheck):
     abbrev = "ADV"
     depends_on: list[str] = []
     scope = "npm"
+    default_cache_ttl = 3600
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
         severity_low: str = "allow",
         severity_medium: str = "warn",
-        severity_high: str = "block",
+        severity_high: str = "warn",
         severity_critical: str = "block",
         **kwargs: object,
     ) -> None:

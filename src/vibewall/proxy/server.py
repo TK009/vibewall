@@ -13,7 +13,7 @@ from vibewall.config import VibewallConfig
 from vibewall.console import ConsoleDisplay
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.checks import ALL_CHECKS
+from vibewall.validators.checks import ALL_CHECKS, CHECK_ABBREVS
 from vibewall.validators.runner import CheckRunner
 
 logger = structlog.get_logger()
@@ -82,7 +82,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
 
     # Build console display
     enabled_checks = _build_enabled_checks(config, runner)
-    display = ConsoleDisplay(enabled_checks, verbose=verbose)
+    display = ConsoleDisplay(enabled_checks, CHECK_ABBREVS, verbose=verbose)
     display.set_port(config.port)
 
     addon = VibewallAddon(config, runner, display)

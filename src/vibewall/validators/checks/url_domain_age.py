@@ -17,6 +17,7 @@ class UrlDomainAgeCheck(BaseCheck):
     abbrev = "AGE"
     depends_on = ["url_dns"]
     scope = "url"
+    default_cache_ttl = 604800
 
     def __init__(self, min_days: int = 30, **kwargs) -> None:
         self._min_days = min_days

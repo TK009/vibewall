@@ -12,13 +12,13 @@ def test_default_config_has_all_validators() -> None:
     assert "npm_blocklist" in cfg.validators
     assert "npm_registry" in cfg.validators
     assert "url_dns" in cfg.validators
-    assert len(cfg.validators) == 11
+    assert len(cfg.validators) == 12
 
 
 def test_load_nonexistent_returns_defaults() -> None:
     cfg = VibewallConfig.load(Path("/nonexistent/path.toml"))
     assert cfg.port == 7777
-    assert len(cfg.validators) == 11
+    assert len(cfg.validators) == 12
 
 
 def test_load_toml_with_validators(tmp_path: Path) -> None:
