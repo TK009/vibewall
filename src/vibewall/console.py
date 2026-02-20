@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+import termios
 import threading
 import time
+import tty
 import uuid
 from dataclasses import dataclass, field
 
 from rich.console import Console
 from rich.live import Live
+from rich.panel import Panel
 from rich.text import Text
 
 from vibewall.models import CheckResult, CheckStatus, RunResult
@@ -36,6 +41,21 @@ _PENDING_CELL = "  ··"
 _SKIPPED_CELL = "   —"
 _STATUS_CODE_WIDTH = 5  # "  200", "  403", "  ···"
 _LEGEND_INTERVAL = 30  # re-print column headers every N lines (approx terminal height)
+
+
+def _read_single_key() -> str:
+    """Read a single keypress from stdin without waiting for Enter."""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        # Ctrl-C in raw mode comes through as \x03
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 def _prefix_width(scope: str) -> int:
@@ -68,6 +88,7 @@ class ConsoleDisplay:
         self._is_tty = self._console.is_terminal
         self._live: Live | None = None
         self._lock = threading.Lock()
+        self._ask_lock = asyncio.Lock()
         self._active: dict[str, _ActiveRequest] = {}
 
         # Stats
@@ -209,6 +230,65 @@ class ConsoleDisplay:
         if extra:
             text += f" [dim]{extra}[/dim]"
         self._console.print(text)
+
+    async def prompt_ask(self, check_name: str, target: str, result: CheckResult) -> bool:
+        """Interactively prompt the user to approve or deny a failing check.
+
+        Returns True if user approves (y/Y), False otherwise.
+        """
+        async with self._ask_lock:
+            # Pause Live display so our prompt isn't overwritten
+            if self._live is not None:
+                self._live.stop()
+
+            try:
+                # Print a snapshot of all active requests so the user
+                # can see the current state of in-flight checks.
+                with self._lock:
+                    active_snapshot = list(self._active.values())
+                if active_snapshot:
+                    self._console.print()
+                    for req in active_snapshot:
+                        self._console.print(self._build_active_line(req))
+
+                body = Text()
+                body.append("Check:  ", style="bold")
+                body.append(f"{check_name}\n")
+                body.append("Target: ", style="bold")
+                body.append(f"{target}\n")
+                body.append("Reason: ", style="bold")
+                body.append(f"{result.reason}\n")
+                if result.data:
+                    for key, value in result.data.items():
+                        if key == "action_override":
+                            continue
+                        body.append(f"  {key}: ", style="dim")
+                        body.append(f"{value}\n")
+
+                panel = Panel(
+                    body,
+                    title="[bold yellow]vibewall ask[/bold yellow]",
+                    border_style="yellow",
+                    expand=False,
+                )
+                self._console.print(panel)
+                self._console.print("[bold yellow]Allow this request? (Y/n):[/bold yellow] ", end="")
+
+                loop = asyncio.get_running_loop()
+                try:
+                    ch = await loop.run_in_executor(None, _read_single_key)
+                except (KeyboardInterrupt, EOFError):
+                    self._console.print()  # newline after ^C
+                    return False
+                approved = ch.lower() != "n"
+                label = "yes" if approved else "no"
+                style = "green" if approved else "red"
+                self._console.print(f"[{style}]{label}[/{style}]")
+                return approved
+            finally:
+                # Resume Live display
+                if self._live is not None:
+                    self._live.start()
 
     def set_port(self, port: int) -> None:
         """Set the port for the startup banner (called before start)."""

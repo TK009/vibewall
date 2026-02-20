@@ -3,13 +3,15 @@ from __future__ import annotations
 import pytest
 
 from vibewall.cache.store import TTLCache
-from vibewall.config import VibewallConfig
+from vibewall.config import ValidatorConfig, VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.runner import CheckRunner
 
 
 class StubCheck(BaseCheck):
+    abbrev = "STB"
+
     def __init__(self, name: str, scope: str, depends_on: list[str] | None = None, result: CheckResult | None = None):
         self.name = name
         self.scope = scope
@@ -112,6 +114,7 @@ class TestCheckRunner:
 
         class DepCheck(BaseCheck):
             name = "npm_existence"
+            abbrev = "EXS"
             depends_on = ["npm_registry"]
             scope = "npm"
             def __init__(self): pass
@@ -140,3 +143,71 @@ class TestCheckRunner:
         await runner.run("npm", "lodash")
         assert npm_check.called
         assert not url_check.called
+
+    @pytest.mark.asyncio
+    async def test_ask_approved_downgrades_to_sus(self, runner_config: VibewallConfig) -> None:
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        runner_config.validators["npm_age"] = ValidatorConfig(action="ask")
+        runner = CheckRunner([check], runner_config, TTLCache())
+
+        async def approve(name, target, result):
+            return True
+
+        result = await runner.run("npm", "new-pkg", on_ask=approve)
+        assert result.allowed
+        assert result.results[0][1].status == CheckStatus.SUS
+
+    @pytest.mark.asyncio
+    async def test_ask_denied_stays_fail(self, runner_config: VibewallConfig) -> None:
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        runner_config.validators["npm_age"] = ValidatorConfig(action="ask")
+        runner = CheckRunner([check], runner_config, TTLCache())
+
+        async def deny(name, target, result):
+            return False
+
+        result = await runner.run("npm", "new-pkg", on_ask=deny)
+        assert result.blocked
+
+    @pytest.mark.asyncio
+    async def test_ask_no_callback_stays_fail(self, runner_config: VibewallConfig) -> None:
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        runner_config.validators["npm_age"] = ValidatorConfig(action="ask")
+        runner = CheckRunner([check], runner_config, TTLCache())
+
+        result = await runner.run("npm", "new-pkg", on_ask=None)
+        assert result.blocked
+
+    @pytest.mark.asyncio
+    async def test_ask_callback_exception_stays_fail(self, runner_config: VibewallConfig) -> None:
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        runner_config.validators["npm_age"] = ValidatorConfig(action="ask")
+        runner = CheckRunner([check], runner_config, TTLCache())
+
+        async def explode(name, target, result):
+            raise RuntimeError("boom")
+
+        result = await runner.run("npm", "new-pkg", on_ask=explode)
+        assert result.blocked
+
+    @pytest.mark.asyncio
+    async def test_ask_approved_is_cached_as_sus(self, runner_config: VibewallConfig) -> None:
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        runner_config.validators["npm_age"] = ValidatorConfig(action="ask")
+        cache = TTLCache()
+        runner = CheckRunner([check], runner_config, cache)
+
+        ask_count = 0
+
+        async def approve(name, target, result):
+            nonlocal ask_count
+            ask_count += 1
+            return True
+
+        await runner.run("npm", "new-pkg", on_ask=approve)
+        assert ask_count == 1
+
+        # Second run should use cache — no prompt
+        result2 = await runner.run("npm", "new-pkg", on_ask=approve)
+        assert ask_count == 1  # not called again
+        assert result2.allowed

@@ -82,6 +82,7 @@ class VibewallAddon:
             scope,
             target,
             on_check_done=lambda name, r: self._display.update_check(req_id, name, r),
+            on_ask=self._display.prompt_ask,
         )
         self._display.set_run_result(req_id, result)
 

@@ -9,7 +9,7 @@ from vibewall.validators.base import BaseCheck
 
 # Severity levels in ascending order of restrictiveness
 _SEVERITY_ORDER = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}
-_ACTION_ORDER = {"allow": 0, "warn": 1, "block": 2}
+_ACTION_ORDER = {"allow": 0, "warn": 1, "ask": 2, "block": 3}
 
 _OSV_API_URL = "https://api.osv.dev/v1/query"
 

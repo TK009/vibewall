@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 OnCheckDone = Callable[[str, CheckResult | None], None] | None
+OnAsk = Callable[[str, str, CheckResult], Awaitable[bool]] | None
 
 # Checks whose FAIL result should short-circuit (stop further checks)
 _BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist"}
@@ -47,6 +48,7 @@ class CheckRunner:
         scope: str,
         target: str,
         on_check_done: OnCheckDone = None,
+        on_ask: OnAsk = None,
     ) -> RunResult:
         enabled = self._get_enabled_checks(scope)
         if not enabled:
@@ -57,7 +59,7 @@ class CheckRunner:
         timeout = self._config.pipeline_timeout
         try:
             return await asyncio.wait_for(
-                self._run_checks(enabled, target, on_check_done),
+                self._run_checks(enabled, target, on_check_done, on_ask),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -74,11 +76,12 @@ class CheckRunner:
         enabled: list[BaseCheck],
         target: str,
         on_check_done: OnCheckDone = None,
+        on_ask: OnAsk = None,
     ) -> RunResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
         # context keeps raw results (dependencies need original FAIL status),
-        # all_results keeps display results (FAIL downgraded to SUS for warns).
+        # all_results keeps display results (FAIL downgraded to SUS for warns/asks).
         context = CheckContext()
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
@@ -102,12 +105,15 @@ class CheckRunner:
                     *[check.run(target, context) for check in to_run]
                 )
                 for check, result in zip(to_run, results):
-                    display = self._maybe_downgrade(check.name, result)
+                    display = await self._maybe_ask(check.name, target, result, on_ask)
+                    display = self._maybe_downgrade(check.name, display)
                     all_results.append((check.name, display))
                     context.add(check.name, result)
                     completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
-                    self._cache.set(f"{check.name}:{target}", result, ttl)
+                    # Cache the post-decision result so approved asks
+                    # are cached as SUS and won't re-prompt.
+                    self._cache.set(f"{check.name}:{target}", display, ttl)
                     self._notify(on_check_done, check.name, display)
 
             # Short-circuit evaluation after each layer
@@ -208,6 +214,28 @@ class CheckRunner:
         vc = self._config.get_validator(check_name)
         action = result.data.get("action_override") or (vc.action if vc else "block")
         if action == "warn":
+            return CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
+        return result
+
+    async def _maybe_ask(
+        self, check_name: str, target: str, result: CheckResult, on_ask: OnAsk
+    ) -> CheckResult:
+        """Prompt user for action='ask' FAILs. Returns SUS if approved, FAIL if denied."""
+        if result.status != CheckStatus.FAIL:
+            return result
+        vc = self._config.get_validator(check_name)
+        action = result.data.get("action_override") or (vc.action if vc else "block")
+        if action != "ask":
+            return result
+        if on_ask is None:
+            # No interactive mode (no TTY / no display) → treat as block
+            return result
+        try:
+            approved = await on_ask(check_name, target, result)
+        except Exception:
+            logger.exception("on_ask_callback_error", check=check_name)
+            return result
+        if approved:
             return CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
         return result
 

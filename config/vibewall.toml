@@ -33,7 +33,7 @@ action = "block"
 severity_low = "allow"
 severity_medium = "warn"
 severity_high = "warn"
-severity_critical = "block"
+severity_critical = "ask"
 cache_ttl = 3600
 
 [validators.url_blocklist]
