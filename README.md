@@ -7,21 +7,44 @@ Hallucination firewall for AI coding agents. Vibewall is an HTTP/HTTPS proxy tha
 
 Vibewall sits between your AI agent and the internet as a [mitmproxy](https://mitmproxy.org/) addon. Every outgoing request is validated before it reaches its destination.
 
-**npm registry requests** go through layered checks:
+Each validator runs in **block**, **warn**, or **ask** mode independently. Block mode returns `403 Forbidden`; warn mode logs the issue but lets the request through; ask mode prompts interactively.
 
-1. **Blocklist** — known malicious packages are rejected immediately
-2. **Allowlist** — trusted packages (110+ popular ones included) skip further checks
-3. **Existence** — the package must actually exist on npm (catches hallucinations)
-4. **Typosquatting** — packages suspiciously similar to allowlisted names are flagged (Levenshtein distance)
-5. **Age** — packages younger than 7 days are blocked
-6. **Popularity** — packages with fewer than 10 weekly downloads are blocked
+## Validators
 
-**All other URLs** (when enabled) are validated for:
+### npm checks
 
-1. **DNS resolution** — the domain must actually exist
-2. **Domain age** — domains younger than 30 days are blocked via WHOIS lookup
+| Validator | Description | Default action |
+|---|---|---|
+| `npm_blocklist` | Rejects packages on the blocklist immediately | block |
+| `npm_allowlist` | Trusts allowlisted packages and skips remaining checks | block |
+| `npm_registry` | Fetches package metadata from the npm registry | warn |
+| `npm_existence` | Fails if the package doesn't exist on npm (catches hallucinations) | block |
+| `npm_typosquat` | Flags packages suspiciously similar to allowlisted names (Levenshtein distance) | warn |
+| `npm_age` | Blocks packages younger than a configurable threshold (default: 7 days) | block |
+| `npm_downloads` | Flags packages with fewer than a configurable number of weekly downloads | warn |
+| `npm_advisories` | Queries OSV for known vulnerabilities with configurable severity thresholds | block |
 
-Each validator runs in **block** or **warn** mode independently. Block mode returns `403 Forbidden`; warn mode logs the issue but lets the request through.
+### PyPI checks
+
+| Validator | Description | Default action |
+|---|---|---|
+| `pypi_blocklist` | Rejects packages on the blocklist immediately | block |
+| `pypi_allowlist` | Trusts allowlisted packages and skips remaining checks | block |
+| `pypi_registry` | Fetches package metadata from the PyPI JSON API | warn |
+| `pypi_existence` | Fails if the package doesn't exist on PyPI (catches hallucinations) | block |
+| `pypi_typosquat` | Flags packages suspiciously similar to allowlisted names (Levenshtein distance) | warn |
+| `pypi_age` | Blocks packages younger than a configurable threshold (default: 7 days) | block |
+| `pypi_downloads` | Flags packages with low weekly downloads via pypistats.org | warn |
+| `pypi_advisories` | Queries OSV for known vulnerabilities with configurable severity thresholds | block |
+
+### URL checks
+
+| Validator | Description | Default action |
+|---|---|---|
+| `url_blocklist` | Rejects domains on the blocklist immediately | block |
+| `url_allowlist` | Trusts allowlisted domains and skips remaining checks | block |
+| `url_dns` | Fails if the domain doesn't resolve in DNS | block |
+| `url_domain_age` | Blocks domains younger than a configurable threshold (default: 30 days) via WHOIS | block |
 
 ## Quick start
 
