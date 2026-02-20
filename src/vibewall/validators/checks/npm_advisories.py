@@ -103,12 +103,14 @@ class NpmAdvisoriesCheck(BaseCheck):
             action = self._severity_actions.get(severity, "block")
             vuln_id = vuln.get("id", "unknown")
             summary = vuln.get("summary", "no description")
+            details = vuln.get("details", "")
 
             advisories.append({
                 "id": vuln_id,
                 "severity": severity,
                 "action": action,
                 "summary": summary,
+                "details": details,
             })
 
             # Track the most restrictive action

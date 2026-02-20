@@ -17,6 +17,15 @@ from rich.text import Text
 from vibewall.models import CheckResult, CheckStatus, RunResult
 from vibewall.validators.checks import CHECK_ABBREVS, SCOPE_ORDER
 
+# Severity → Rich style for advisory display
+_SEVERITY_STYLE: dict[str, str] = {
+    "CRITICAL": "bold red",
+    "HIGH": "red",
+    "MODERATE": "yellow",
+    "MEDIUM": "yellow",
+    "LOW": "dim",
+}
+
 # Scope-dependent target column widths
 _TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40}
 
@@ -259,8 +268,30 @@ class ConsoleDisplay:
                 body.append("Reason: ", style="bold")
                 body.append(f"{result.reason}\n")
                 if result.data:
+                    advisories = result.data.get("advisories")
+                    if advisories and isinstance(advisories, list):
+                        body.append("\n")
+                        for adv in advisories:
+                            sev = adv.get("severity", "UNKNOWN").upper()
+                            sev_style = _SEVERITY_STYLE.get(sev, "")
+                            vuln_id = adv.get("id", "unknown")
+                            summary = adv.get("summary", "")
+                            details = adv.get("details", "")
+                            body.append(f"  [{sev}]", style=sev_style)
+                            body.append(f" {vuln_id}", style="bold")
+                            if summary:
+                                body.append(f" — {summary}", style="dim")
+                            body.append("\n")
+                            if details:
+                                # Show first paragraph, trimmed
+                                first_para = details.strip().split("\n\n")[0]
+                                first_para = first_para.replace("\n", " ").strip()
+                                if len(first_para) > 600:
+                                    first_para = first_para[:597] + "..."
+                                body.append(f"    {first_para}\n", style="dim")
+                    # Show any other data keys (excluding internal ones)
                     for key, value in result.data.items():
-                        if key == "action_override":
+                        if key in ("action_override", "advisories"):
                             continue
                         body.append(f"  {key}: ", style="dim")
                         body.append(f"{value}\n")
