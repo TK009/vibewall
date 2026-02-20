@@ -12,6 +12,7 @@ from mitmproxy.tools.dump import DumpMaster
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.console import ConsoleDisplay
+from vibewall.notifications import Notifier
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.allowlist import AllowBlockList
 from vibewall.validators.base import BaseCheck
@@ -93,14 +94,24 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     checks = _build_checks(config, npm_lists, url_lists, session)
     runner = CheckRunner(checks, config, cache)
 
+    # Build notifier
+    notifier = Notifier(
+        enabled=config.notifications.enabled,
+        expire_ms=config.notifications.expire_ms,
+    )
+
     # Build console display
     enabled_checks = _build_enabled_checks(config, runner)
     display = ConsoleDisplay(
         enabled_checks, CHECK_ABBREVS, SCOPE_ORDER, verbose=verbose,
+        notifier=notifier if config.notifications.ask else None,
     )
     display.set_port(config.port)
 
-    addon = VibewallAddon(config, runner, display)
+    addon = VibewallAddon(
+        config, runner, display,
+        notifier=notifier if (config.notifications.blocked or config.notifications.warned) else None,
+    )
 
     opts = options.Options(
         listen_host=config.host,

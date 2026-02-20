@@ -32,6 +32,15 @@ class ValidatorConfig:
 
 
 @dataclass
+class NotificationsConfig:
+    enabled: bool = True  # auto-detect if True + notify-send on PATH
+    blocked: bool = True  # notify on blocked requests
+    warned: bool = True  # notify on warned requests
+    ask: bool = True  # interactive notification for ask-mode
+    expire_ms: int = 10000  # notification timeout in ms
+
+
+@dataclass
 class CacheConfig:
     default_ttl: int = 3600
     max_entries: int = 50000
@@ -46,6 +55,7 @@ class VibewallConfig:
     )
     validators: dict[str, ValidatorConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)
+    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     config_dir: Path = field(default_factory=lambda: Path("config"))
 
     def get_validator(self, name: str) -> ValidatorConfig | None:
@@ -79,6 +89,17 @@ class VibewallConfig:
             cache_data = data["cache"]
             cfg.cache.default_ttl = cache_data.get("default_ttl", cfg.cache.default_ttl)
             cfg.cache.max_entries = cache_data.get("max_entries", cfg.cache.max_entries)
+
+        # Notifications config
+        if "notifications" in data:
+            n = data["notifications"]
+            cfg.notifications = NotificationsConfig(
+                enabled=n.get("enabled", cfg.notifications.enabled),
+                blocked=n.get("blocked", cfg.notifications.blocked),
+                warned=n.get("warned", cfg.notifications.warned),
+                ask=n.get("ask", cfg.notifications.ask),
+                expire_ms=n.get("expire_ms", cfg.notifications.expire_ms),
+            )
 
         # Per-validator config from [validators.*] sections
         validators_data = data.get("validators", {})

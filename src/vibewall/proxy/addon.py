@@ -9,6 +9,7 @@ from mitmproxy import http
 
 from vibewall.config import VibewallConfig
 from vibewall.models import RunResult
+from vibewall.notifications import Notifier
 from vibewall.validators.runner import CheckRunner
 
 if TYPE_CHECKING:
@@ -26,10 +27,12 @@ class VibewallAddon:
         config: VibewallConfig,
         runner: CheckRunner,
         display: ConsoleDisplay | None = None,
+        notifier: Notifier | None = None,
     ) -> None:
         self._config = config
         self._runner = runner
         self._display = display
+        self._notifier = notifier
         self._flow_to_req: dict[str, str] = {}  # flow.id → req_id
 
     async def request(self, flow: http.HTTPFlow) -> None:
@@ -82,6 +85,17 @@ class VibewallAddon:
             on_ask=self._display.prompt_ask,
         )
         self._display.set_run_result(req_id, result)
+
+        # Fire-and-forget desktop notifications
+        if self._notifier is not None:
+            if result.blocked:
+                asyncio.create_task(
+                    self._notifier.notify_blocked(scope, target, result.reason)
+                )
+            elif result.warnings:
+                asyncio.create_task(
+                    self._notifier.notify_warned(scope, target, result.warnings)
+                )
 
         if result.blocked:
             # Blocked requests won't get a response() hook from upstream,

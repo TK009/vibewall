@@ -5,12 +5,16 @@ import sys
 import termios
 import tty
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from vibewall.models import CheckResult
+
+if TYPE_CHECKING:
+    from vibewall.notifications import Notifier
 
 # Severity → Rich style for advisory display
 _SEVERITY_STYLE: dict[str, str] = {
@@ -46,11 +50,13 @@ class InteractivePrompter:
         pause_live: Callable[[], None],
         resume_live: Callable[[], None],
         get_active_lines: Callable[[], list[Text]],
+        notifier: Notifier | None = None,
     ) -> None:
         self._console = console
         self._pause_live = pause_live
         self._resume_live = resume_live
         self._get_active_lines = get_active_lines
+        self._notifier = notifier
         self._ask_lock = asyncio.Lock()
 
     async def prompt_ask(self, check_name: str, target: str, result: CheckResult) -> bool:
@@ -116,12 +122,37 @@ class InteractivePrompter:
                 self._console.print("[bold yellow]Allow this request? (Y/n):[/bold yellow] ", end="")
 
                 loop = asyncio.get_running_loop()
-                try:
-                    ch = await loop.run_in_executor(None, _read_single_key)
-                except (KeyboardInterrupt, EOFError):
-                    self._console.print()  # newline after ^C
-                    return False
-                approved = ch.lower() != "n"
+                terminal_task = asyncio.create_task(
+                    loop.run_in_executor(None, _read_single_key)
+                )
+
+                notify_task = None
+                if self._notifier is not None:
+                    notify_task = asyncio.create_task(
+                        self._notifier.prompt_ask(check_name, target, result.reason)
+                    )
+
+                tasks: list[asyncio.Task] = [terminal_task]
+                if notify_task is not None:
+                    tasks.append(notify_task)
+
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                for task in pending:
+                    task.cancel()
+
+                winner = done.pop()
+                if winner is terminal_task:
+                    try:
+                        ch = winner.result()
+                    except (KeyboardInterrupt, EOFError):
+                        self._console.print()
+                        return False
+                    approved = ch.lower() != "n"
+                else:
+                    notify_result = winner.result()
+                    approved = notify_result if notify_result is not None else True
+
                 label = "yes" if approved else "no"
                 style = "green" if approved else "red"
                 self._console.print(f"[{style}]{label}[/{style}]")

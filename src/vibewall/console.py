@@ -10,6 +10,7 @@ from rich.live import Live
 from rich.text import Text
 
 from vibewall.models import CheckResult, CheckStatus, RunResult
+from vibewall.notifications import Notifier
 from vibewall.prompter import InteractivePrompter
 
 # Scope-dependent target column widths
@@ -60,6 +61,7 @@ class ConsoleDisplay:
         check_abbrevs: dict[str, str],
         scope_order: dict[str, list[str]],
         verbose: bool = False,
+        notifier: Notifier | None = None,
     ) -> None:
         """
         enabled_checks: {"npm": ["npm_blocklist", ...], "url": ["url_blocklist", ...]}
@@ -79,6 +81,7 @@ class ConsoleDisplay:
             pause_live=self.pause_live,
             resume_live=self.resume_live,
             get_active_lines=self.get_active_lines,
+            notifier=notifier,
         )
 
         # Stats
