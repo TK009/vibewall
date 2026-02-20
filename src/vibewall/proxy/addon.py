@@ -97,13 +97,13 @@ class VibewallAddon:
         )
         self._display.set_run_result(req_id, result)
 
-        # Fire-and-forget desktop notifications
+        # Fire-and-forget desktop notifications (gated per type)
         if self._notifier is not None:
-            if result.blocked:
+            if result.blocked and self._config.notifications.blocked:
                 asyncio.create_task(
                     self._notifier.notify_blocked(scope, target, result.reason)
                 )
-            elif result.warnings:
+            elif result.warnings and self._config.notifications.warned:
                 asyncio.create_task(
                     self._notifier.notify_warned(scope, target, result.warnings)
                 )

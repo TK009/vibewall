@@ -70,7 +70,7 @@ class Notifier:
     async def _send(self, urgency: str, summary: str, body: str) -> None:
         """Run notify-send as async subprocess. Errors are silently ignored."""
         try:
-            await asyncio.create_subprocess_exec(
+            proc = await asyncio.create_subprocess_exec(
                 "notify-send",
                 "--app-name=vibewall",
                 f"--urgency={urgency}",
@@ -78,5 +78,6 @@ class Notifier:
                 summary,
                 body,
             )
+            await proc.wait()
         except Exception:
             pass

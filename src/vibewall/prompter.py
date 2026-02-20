@@ -138,6 +138,9 @@ class InteractivePrompter:
 
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
+                # Cancel remaining tasks. Note: _read_single_key runs in an
+                # executor thread and can't be truly interrupted — the thread
+                # will block until the next keypress, which is silently consumed.
                 for task in pending:
                     task.cancel()
 
@@ -150,7 +153,11 @@ class InteractivePrompter:
                         return False
                     approved = ch.lower() != "n"
                 else:
-                    notify_result = winner.result()
+                    try:
+                        notify_result = winner.result()
+                    except Exception:
+                        # Notification subprocess failed; default to allow (same as dismiss)
+                        notify_result = None
                     approved = notify_result if notify_result is not None else True
 
                 label = "yes" if approved else "no"

@@ -116,7 +116,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
 
     addon = VibewallAddon(
         config, runner, display,
-        notifier=notifier if (config.notifications.blocked or config.notifications.warned) else None,
+        notifier=notifier if config.notifications.enabled else None,
     )
 
     opts = options.Options(
