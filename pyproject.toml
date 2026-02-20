@@ -23,6 +23,9 @@ vibewall = "vibewall.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/vibewall"]
 
+[tool.uv]
+find-links = ["wheels"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
