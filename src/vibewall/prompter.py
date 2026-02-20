@@ -122,7 +122,7 @@ class InteractivePrompter:
                 self._console.print("[bold yellow]Allow this request? (Y/n):[/bold yellow] ", end="")
 
                 loop = asyncio.get_running_loop()
-                terminal_task = asyncio.create_task(
+                terminal_task = asyncio.ensure_future(
                     loop.run_in_executor(None, _read_single_key)
                 )
 

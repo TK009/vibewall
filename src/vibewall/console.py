@@ -109,7 +109,7 @@ class ConsoleDisplay:
             self._live = Live(
                 Text(""),
                 console=self._console,
-                refresh_per_second=8,
+                refresh_per_second=1,
                 transient=True,
             )
             self._live.start()
@@ -341,6 +341,14 @@ class ConsoleDisplay:
             for warn in run_result.warnings:
                 line.append(f"  {warn}", style="yellow")
 
+            # Fallback: if no messages were shown but there are non-OK
+            # results, show the worst one so the user always sees a reason
+            if not run_result.errors and not run_result.warnings:
+                worst = self._worst_result(run_result)
+                if worst is not None:
+                    style = _STATUS_STYLE.get(worst.status, "")
+                    line.append(f"  {worst.reason}", style=style)
+
         return line
 
     def _build_active_line(self, req: _ActiveRequest) -> Text:
@@ -397,6 +405,7 @@ class ConsoleDisplay:
 
         if not self._active:
             self._live.update(Text(""))
+            self._live.refresh()
             return
 
         combined = Text()
@@ -406,6 +415,19 @@ class ConsoleDisplay:
             combined.append_text(self._build_active_line(req))
 
         self._live.update(combined)
+        self._live.refresh()
+
+    @staticmethod
+    def _worst_result(run_result: RunResult) -> CheckResult | None:
+        """Return the most severe non-OK result, or None if all OK."""
+        _SEVERITY = {CheckStatus.OK: 0, CheckStatus.ERR: 1, CheckStatus.SUS: 2, CheckStatus.FAIL: 3}
+        worst: CheckResult | None = None
+        for _, cr in run_result.results:
+            if cr.status == CheckStatus.OK:
+                continue
+            if worst is None or _SEVERITY.get(cr.status, 0) > _SEVERITY.get(worst.status, 0):
+                worst = cr
+        return worst
 
     def _format_target(self, scope: str, target: str) -> str:
         """Format target for display. npm shows package name, url shows URL."""
