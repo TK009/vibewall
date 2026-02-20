@@ -22,19 +22,21 @@ from vibewall.validators.runner import CheckRunner
 logger = structlog.get_logger()
 
 # Dependencies available to check constructors, keyed by parameter name.
-_DEP_KEYS = {"lists", "url_lists", "session"}
+_DEP_KEYS = {"lists", "url_lists", "pypi_lists", "session"}
 
 
 def _build_checks(
     config: VibewallConfig,
     npm_lists: AllowBlockList,
     url_lists: AllowBlockList,
+    pypi_lists: AllowBlockList,
     session: aiohttp.ClientSession,
 ) -> list[BaseCheck]:
     """Instantiate all check classes with only the dependencies they declare."""
     available: dict[str, object] = {
         "lists": npm_lists,
         "url_lists": url_lists,
+        "pypi_lists": pypi_lists,
         "session": session,
     }
 
@@ -68,7 +70,7 @@ def _build_checks(
 def _build_enabled_checks(config: VibewallConfig, runner: CheckRunner) -> dict[str, list[str]]:
     """Get enabled check names per scope for the display."""
     enabled: dict[str, list[str]] = {}
-    for scope in ("npm", "url"):
+    for scope in ("npm", "url", "pypi"):
         names = runner.get_enabled_check_names(scope)
         if names:
             enabled[scope] = names
@@ -87,11 +89,15 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
         config.config_dir / "url_allowlist.txt",
         config.config_dir / "url_blocklist.txt",
     )
+    pypi_lists = AllowBlockList(
+        config.config_dir / "pypi_allowlist.txt",
+        config.config_dir / "pypi_blocklist.txt",
+    )
 
     # Shared HTTP session (trust_env=False to avoid proxy loop)
     session = aiohttp.ClientSession(trust_env=False)
 
-    checks = _build_checks(config, npm_lists, url_lists, session)
+    checks = _build_checks(config, npm_lists, url_lists, pypi_lists, session)
     runner = CheckRunner(checks, config, cache)
 
     # Build notifier

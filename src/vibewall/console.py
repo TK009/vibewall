@@ -14,7 +14,7 @@ from vibewall.notifications import Notifier
 from vibewall.prompter import InteractivePrompter
 
 # Scope-dependent target column widths
-_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40}
+_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40, "pypi": 14}
 
 # Status → 4-char cell text
 _STATUS_CELL: dict[CheckStatus, str] = {
@@ -252,7 +252,7 @@ class ConsoleDisplay:
 
     def _print_legend(self) -> None:
         """Print per-scope legend lines. Each scope is its own row."""
-        for scope in ("npm", "url"):
+        for scope in ("npm", "url", "pypi"):
             cols = self._columns.get(scope, [])
             if not cols:
                 continue

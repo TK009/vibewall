@@ -30,6 +30,15 @@ def npm_lists(tmp_path: Path) -> AllowBlockList:
 
 
 @pytest.fixture
+def pypi_lists(tmp_path: Path) -> AllowBlockList:
+    allowlist = tmp_path / "pypi_allowlist.txt"
+    allowlist.write_text("requests\nflask\ndjango\nnumpy\npandas\n")
+    blocklist = tmp_path / "pypi_blocklist.txt"
+    blocklist.write_text("evil-package\n")
+    return AllowBlockList(allowlist, blocklist)
+
+
+@pytest.fixture
 def url_lists(tmp_path: Path) -> AllowBlockList:
     allowlist = tmp_path / "url_allowlist.txt"
     allowlist.write_text("github.com\nnpmjs.org\n")

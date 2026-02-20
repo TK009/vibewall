@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import TYPE_CHECKING
@@ -19,6 +20,8 @@ logger = structlog.get_logger()
 
 # Matches: /lodash, /@babel/core, /@scope/name/-/name-1.0.0.tgz
 _NPM_PACKAGE_RE = re.compile(r"^/(@[^/]+/[^/]+|[^@/][^/]*)(?:/|$)")
+# Matches: /simple/requests/, /pypi/requests/json
+_PYPI_PACKAGE_RE = re.compile(r"^/(?:simple|pypi)/([^/]+)")
 
 
 class VibewallAddon:
@@ -45,6 +48,14 @@ class VibewallAddon:
             if package_name:
                 result = await self._run_with_display(flow, "npm", package_name)
                 self._handle_result(flow, result, "npm", package_name)
+                return
+
+        # Route PyPI registry requests
+        if host == "pypi.org":
+            package_name = self._extract_pypi_package_name(flow.request.path)
+            if package_name:
+                result = await self._run_with_display(flow, "pypi", package_name)
+                self._handle_result(flow, result, "pypi", package_name)
                 return
 
         # Route other URLs through URL checks
@@ -135,5 +146,15 @@ class VibewallAddon:
             # "/-/..." paths are npm API endpoints, not packages
             if name == "-":
                 return None
+            return name
+        return None
+
+    @staticmethod
+    def _extract_pypi_package_name(path: str) -> str | None:
+        match = _PYPI_PACKAGE_RE.match(path)
+        if match:
+            # PEP 503: normalize name (lowercase, replace [-_.] with -)
+            name = match.group(1).lower()
+            name = re.sub(r"[-_.]+", "-", name)
             return name
         return None

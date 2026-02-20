@@ -18,9 +18,9 @@ OnCheckDone = Callable[[str, CheckResult | None], None] | None
 OnAsk = Callable[[str, str, CheckResult], Awaitable[bool]] | None
 
 # Checks whose FAIL result should short-circuit (stop further checks)
-_BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist"}
+_BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist", "pypi_blocklist"}
 # Checks whose OK result should short-circuit (target is trusted)
-_ALLOWLIST_CHECKS = {"npm_allowlist", "url_allowlist"}
+_ALLOWLIST_CHECKS = {"npm_allowlist", "url_allowlist", "pypi_allowlist"}
 
 class CheckRunner:
     def __init__(

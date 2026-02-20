@@ -15,6 +15,14 @@ from vibewall.validators.checks.url_blocklist import UrlBlocklistCheck
 from vibewall.validators.checks.url_allowlist import UrlAllowlistCheck
 from vibewall.validators.checks.url_dns import UrlDnsCheck
 from vibewall.validators.checks.url_domain_age import UrlDomainAgeCheck
+from vibewall.validators.checks.pypi_blocklist import PypiBlocklistCheck
+from vibewall.validators.checks.pypi_allowlist import PypiAllowlistCheck
+from vibewall.validators.checks.pypi_registry import PypiRegistryCheck
+from vibewall.validators.checks.pypi_existence import PypiExistenceCheck
+from vibewall.validators.checks.pypi_typosquat import PypiTyposquatCheck
+from vibewall.validators.checks.pypi_age import PypiAgeCheck
+from vibewall.validators.checks.pypi_downloads import PypiDownloadsCheck
+from vibewall.validators.checks.pypi_advisories import PypiAdvisoriesCheck
 
 ALL_CHECKS: list[type[BaseCheck]] = [
     NpmBlocklistCheck,
@@ -29,6 +37,14 @@ ALL_CHECKS: list[type[BaseCheck]] = [
     UrlAllowlistCheck,
     UrlDnsCheck,
     UrlDomainAgeCheck,
+    PypiBlocklistCheck,
+    PypiAllowlistCheck,
+    PypiRegistryCheck,
+    PypiExistenceCheck,
+    PypiTyposquatCheck,
+    PypiAgeCheck,
+    PypiDownloadsCheck,
+    PypiAdvisoriesCheck,
 ]
 
 # Canonical check ordering per scope (single source of truth)

@@ -50,6 +50,41 @@ action = "block"
 min_days = 30
 cache_ttl = 604800
 
+[validators.pypi_blocklist]
+action = "block"
+
+[validators.pypi_allowlist]
+action = "block"
+
+[validators.pypi_registry]
+action = "warn"
+cache_ttl = 86400
+
+[validators.pypi_existence]
+action = "block"
+
+[validators.pypi_typosquat]
+action = "warn"
+max_distance = 2
+
+[validators.pypi_age]
+action = "block"
+min_days = 7
+missing_date = "fail"
+
+[validators.pypi_downloads]
+action = "warn"
+min_weekly = 10
+cache_ttl = 86400
+
+[validators.pypi_advisories]
+action = "block"
+severity_low = "allow"
+severity_medium = "warn"
+severity_high = "warn"
+severity_critical = "ask"
+cache_ttl = 3600
+
 [notifications]
 # enabled = true        # auto-detect notify-send on PATH
 # blocked = true        # notify on blocked requests
