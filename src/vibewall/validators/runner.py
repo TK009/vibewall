@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
 
 import structlog
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
+from vibewall.validators.action import maybe_ask, maybe_downgrade
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.checks import SCOPE_ORDER
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger()
 
@@ -92,9 +89,9 @@ class CheckRunner:
             for check in layer:
                 cached = self._cache.get(f"{check.name}:{target}")
                 if cached is not None:
-                    display = self._maybe_downgrade(check.name, cached)
+                    raw, display = cached
                     all_results.append((check.name, display))
-                    context.add(check.name, cached)
+                    context.add(check.name, raw)
                     completed_names.add(check.name)
                     self._notify(on_check_done, check.name, display)
                 else:
@@ -105,15 +102,16 @@ class CheckRunner:
                     *[check.run(target, context) for check in to_run]
                 )
                 for check, result in zip(to_run, results):
-                    display = await self._maybe_ask(check.name, target, result, on_ask)
-                    display = self._maybe_downgrade(check.name, display)
+                    display = await maybe_ask(check.name, target, result, self._config, on_ask)
+                    display = maybe_downgrade(check.name, display, self._config)
                     all_results.append((check.name, display))
                     context.add(check.name, result)
                     completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
-                    # Cache the post-decision result so approved asks
-                    # are cached as SUS and won't re-prompt.
-                    self._cache.set(f"{check.name}:{target}", display, ttl)
+                    # Cache both raw and display: raw is needed by
+                    # dependent checks via context, display is the
+                    # post-decision result (approved asks cached as SUS).
+                    self._cache.set(f"{check.name}:{target}", (result, display), ttl)
                     self._notify(on_check_done, check.name, display)
 
             # Short-circuit evaluation after each layer
@@ -206,38 +204,6 @@ class CheckRunner:
         if vc and vc.cache_ttl is not None:
             return vc.cache_ttl
         return self._config.cache.default_ttl
-
-    def _maybe_downgrade(self, check_name: str, result: CheckResult) -> CheckResult:
-        """Downgrade FAIL → SUS when the validator action is 'warn'."""
-        if result.status != CheckStatus.FAIL:
-            return result
-        vc = self._config.get_validator(check_name)
-        action = result.data.get("action_override") or (vc.action if vc else "block")
-        if action == "warn":
-            return CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
-        return result
-
-    async def _maybe_ask(
-        self, check_name: str, target: str, result: CheckResult, on_ask: OnAsk
-    ) -> CheckResult:
-        """Prompt user for action='ask' FAILs. Returns SUS if approved, FAIL if denied."""
-        if result.status != CheckStatus.FAIL:
-            return result
-        vc = self._config.get_validator(check_name)
-        action = result.data.get("action_override") or (vc.action if vc else "block")
-        if action != "ask":
-            return result
-        if on_ask is None:
-            # No interactive mode (no TTY / no display) → treat as block
-            return result
-        try:
-            approved = await on_ask(check_name, target, result)
-        except Exception:
-            logger.exception("on_ask_callback_error", check=check_name)
-            return result
-        if approved:
-            return CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
-        return result
 
     def _should_short_circuit(self, check_name: str, result: CheckResult) -> bool:
         # Blocklist FAIL → stop immediately

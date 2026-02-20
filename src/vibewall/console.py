@@ -1,30 +1,16 @@
 from __future__ import annotations
 
-import asyncio
-import sys
-import termios
 import threading
 import time
-import tty
 import uuid
 from dataclasses import dataclass, field
 
 from rich.console import Console
 from rich.live import Live
-from rich.panel import Panel
 from rich.text import Text
 
 from vibewall.models import CheckResult, CheckStatus, RunResult
-from vibewall.validators.checks import SCOPE_ORDER
-
-# Severity → Rich style for advisory display
-_SEVERITY_STYLE: dict[str, str] = {
-    "CRITICAL": "bold red",
-    "HIGH": "red",
-    "MODERATE": "yellow",
-    "MEDIUM": "yellow",
-    "LOW": "dim",
-}
+from vibewall.prompter import InteractivePrompter
 
 # Scope-dependent target column widths
 _TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40}
@@ -52,21 +38,6 @@ _STATUS_CODE_WIDTH = 5  # "  200", "  403", "  ···"
 _LEGEND_INTERVAL = 30  # re-print column headers every N lines (approx terminal height)
 
 
-def _read_single_key() -> str:
-    """Read a single keypress from stdin without waiting for Enter."""
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        # Ctrl-C in raw mode comes through as \x03
-        if ch == "\x03":
-            raise KeyboardInterrupt
-        return ch
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
 def _prefix_width(scope: str) -> int:
     """Chars before the first check cell: icon(1) + ' scope '(6) + target(W) + ' '(1)."""
     return 8 + _TARGET_WIDTH.get(scope, 14)
@@ -87,11 +58,13 @@ class ConsoleDisplay:
         self,
         enabled_checks: dict[str, list[str]],
         check_abbrevs: dict[str, str],
+        scope_order: dict[str, list[str]],
         verbose: bool = False,
     ) -> None:
         """
         enabled_checks: {"npm": ["npm_blocklist", ...], "url": ["url_blocklist", ...]}
         check_abbrevs: maps check name → abbreviation for column headers
+        scope_order: maps scope → ordered list of all check names in that scope
         """
         self._enabled = enabled_checks
         self._check_abbrevs = check_abbrevs
@@ -100,8 +73,13 @@ class ConsoleDisplay:
         self._is_tty = self._console.is_terminal
         self._live: Live | None = None
         self._lock = threading.Lock()
-        self._ask_lock = asyncio.Lock()
         self._active: dict[str, _ActiveRequest] = {}
+        self._prompter = InteractivePrompter(
+            console=self._console,
+            pause_live=self.pause_live,
+            resume_live=self.resume_live,
+            get_active_lines=self.get_active_lines,
+        )
 
         # Stats
         self._allowed = 0
@@ -113,7 +91,7 @@ class ConsoleDisplay:
 
         # Build ordered columns per scope (only enabled ones)
         self._columns: dict[str, list[str]] = {}
-        for scope, order in SCOPE_ORDER.items():
+        for scope, order in scope_order.items():
             self._columns[scope] = [
                 c for c in order if c in enabled_checks.get(scope, [])
             ]
@@ -244,85 +222,23 @@ class ConsoleDisplay:
         self._console.print(text)
 
     async def prompt_ask(self, check_name: str, target: str, result: CheckResult) -> bool:
-        """Interactively prompt the user to approve or deny a failing check.
+        """Delegate interactive prompting to the InteractivePrompter."""
+        return await self._prompter.prompt_ask(check_name, target, result)
 
-        Returns True if user approves (y/Y), False otherwise.
-        """
-        async with self._ask_lock:
-            # Pause Live display so our prompt isn't overwritten
-            if self._live is not None:
-                self._live.stop()
+    def pause_live(self) -> None:
+        """Stop the Live display (e.g. before an interactive prompt)."""
+        if self._live is not None:
+            self._live.stop()
 
-            try:
-                # Print a snapshot of all active requests so the user
-                # can see the current state of in-flight checks.
-                with self._lock:
-                    active_snapshot = list(self._active.values())
-                if active_snapshot:
-                    self._console.print()
-                    for req in active_snapshot:
-                        self._console.print(self._build_active_line(req))
+    def resume_live(self) -> None:
+        """Restart the Live display (e.g. after an interactive prompt)."""
+        if self._live is not None:
+            self._live.start()
 
-                body = Text()
-                body.append("Check:  ", style="bold")
-                body.append(f"{check_name}\n")
-                body.append("Target: ", style="bold")
-                body.append(f"{target}\n")
-                body.append("Reason: ", style="bold")
-                body.append(f"{result.reason}\n")
-                if result.data:
-                    advisories = result.data.get("advisories")
-                    if advisories and isinstance(advisories, list):
-                        body.append("\n")
-                        for adv in advisories:
-                            sev = adv.get("severity", "UNKNOWN").upper()
-                            sev_style = _SEVERITY_STYLE.get(sev, "")
-                            vuln_id = adv.get("id", "unknown")
-                            summary = adv.get("summary", "")
-                            details = adv.get("details", "")
-                            body.append(f"  [{sev}]", style=sev_style)
-                            body.append(f" {vuln_id}", style="bold")
-                            if summary:
-                                body.append(f" — {summary}", style="dim")
-                            body.append("\n")
-                            if details:
-                                # Show first paragraph, trimmed
-                                first_para = details.strip().split("\n\n")[0]
-                                first_para = first_para.replace("\n", " ").strip()
-                                if len(first_para) > 600:
-                                    first_para = first_para[:597] + "..."
-                                body.append(f"    {first_para}\n", style="dim")
-                    # Show any other data keys (excluding internal ones)
-                    for key, value in result.data.items():
-                        if key in ("action_override", "advisories"):
-                            continue
-                        body.append(f"  {key}: ", style="dim")
-                        body.append(f"{value}\n")
-
-                panel = Panel(
-                    body,
-                    title="[bold yellow]vibewall ask[/bold yellow]",
-                    border_style="yellow",
-                    expand=False,
-                )
-                self._console.print(panel)
-                self._console.print("[bold yellow]Allow this request? (Y/n):[/bold yellow] ", end="")
-
-                loop = asyncio.get_running_loop()
-                try:
-                    ch = await loop.run_in_executor(None, _read_single_key)
-                except (KeyboardInterrupt, EOFError):
-                    self._console.print()  # newline after ^C
-                    return False
-                approved = ch.lower() != "n"
-                label = "yes" if approved else "no"
-                style = "green" if approved else "red"
-                self._console.print(f"[{style}]{label}[/{style}]")
-                return approved
-            finally:
-                # Resume Live display
-                if self._live is not None:
-                    self._live.start()
+    def get_active_lines(self) -> list[Text]:
+        """Return display lines for all active (in-progress) requests."""
+        with self._lock:
+            return [self._build_active_line(req) for req in self._active.values()]
 
     def set_port(self, port: int) -> None:
         """Set the port for the startup banner (called before start)."""

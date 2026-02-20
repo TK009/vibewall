@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import shutil
 from pathlib import Path
 
@@ -13,10 +14,14 @@ from vibewall.config import VibewallConfig
 from vibewall.console import ConsoleDisplay
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.checks import ALL_CHECKS, CHECK_ABBREVS
+from vibewall.validators.base import BaseCheck
+from vibewall.validators.checks import ALL_CHECKS, CHECK_ABBREVS, SCOPE_ORDER
 from vibewall.validators.runner import CheckRunner
 
 logger = structlog.get_logger()
+
+# Dependencies available to check constructors, keyed by parameter name.
+_DEP_KEYS = {"lists", "url_lists", "session"}
 
 
 def _build_checks(
@@ -24,27 +29,35 @@ def _build_checks(
     npm_lists: AllowBlockList,
     url_lists: AllowBlockList,
     session: aiohttp.ClientSession,
-) -> list:
-    """Instantiate all check classes with their dependencies."""
-    from vibewall.validators.base import BaseCheck
-
-    # Shared kwargs available to all check constructors
-    kwargs_map: dict[str, dict] = {}
-    for cls in ALL_CHECKS:
-        name = cls.name
-        vc = config.get_validator(name)
-        params = vc.params if vc else {}
-
-        kwargs = dict(params)
-        kwargs["lists"] = npm_lists
-        kwargs["url_lists"] = url_lists
-        kwargs["session"] = session
-        kwargs_map[name] = kwargs
+) -> list[BaseCheck]:
+    """Instantiate all check classes with only the dependencies they declare."""
+    available: dict[str, object] = {
+        "lists": npm_lists,
+        "url_lists": url_lists,
+        "session": session,
+    }
 
     checks: list[BaseCheck] = []
     for cls in ALL_CHECKS:
+        vc = config.get_validator(cls.name)
+        params = dict(vc.params) if vc else {}
+
+        # Inspect the constructor to determine which deps it actually accepts
+        sig = inspect.signature(cls.__init__)
+        accepted = set(sig.parameters.keys()) - {"self"}
+        has_var_keyword = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        )
+
+        kwargs: dict[str, object] = {}
+        for key, value in available.items():
+            if key in accepted or has_var_keyword:
+                kwargs[key] = value
+        kwargs.update(params)
+
         try:
-            checks.append(cls(**kwargs_map[cls.name]))
+            checks.append(cls(**kwargs))
         except TypeError as e:
             logger.error("check_init_skipped", check=cls.name, error=str(e))
 
@@ -82,7 +95,9 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
 
     # Build console display
     enabled_checks = _build_enabled_checks(config, runner)
-    display = ConsoleDisplay(enabled_checks, CHECK_ABBREVS, verbose=verbose)
+    display = ConsoleDisplay(
+        enabled_checks, CHECK_ABBREVS, SCOPE_ORDER, verbose=verbose,
+    )
     display.set_port(config.port)
 
     addon = VibewallAddon(config, runner, display)
