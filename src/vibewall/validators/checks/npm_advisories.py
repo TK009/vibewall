@@ -49,6 +49,25 @@ def _extract_severity(vuln: dict) -> str:
     return "HIGH"
 
 
+def _affects_version(vuln: dict, version: str) -> bool:
+    """Check if a vulnerability affects the given version.
+
+    Uses the ``affected[].versions`` list from OSV responses.  If the
+    vulnerability has no ``affected`` data we conservatively assume it
+    applies.
+    """
+    affected = vuln.get("affected", [])
+    if not affected:
+        return True  # no data → assume affected
+
+    for entry in affected:
+        # Exact version match in the explicitly listed versions
+        if version in entry.get("versions", []):
+            return True
+
+    return False
+
+
 class NpmAdvisoriesCheck(BaseCheck):
     name = "npm_advisories"
     abbrev = "ADV"
@@ -73,8 +92,12 @@ class NpmAdvisoriesCheck(BaseCheck):
             "CRITICAL": severity_critical,
         }
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
-        payload = {"package": {"name": target, "ecosystem": "npm"}}
+    async def run(
+        self, target: str, context: CheckContext, *, version: str | None = None, **_kw: object,
+    ) -> CheckResult:
+        payload: dict = {"package": {"name": target, "ecosystem": "npm"}}
+        if version is not None:
+            payload["version"] = version
         try:
             async with self._session.post(
                 _OSV_API_URL,
@@ -92,6 +115,9 @@ class NpmAdvisoriesCheck(BaseCheck):
             return CheckResult.err(f"advisory lookup failed: {e}")
 
         vulns = data.get("vulns", [])
+        # Client-side version filtering as a safety net
+        if version is not None:
+            vulns = [v for v in vulns if _affects_version(v, version)]
         if not vulns:
             return CheckResult.ok(f"no known advisories for '{target}'")
 

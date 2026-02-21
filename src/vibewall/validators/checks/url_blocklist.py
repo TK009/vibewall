@@ -14,7 +14,7 @@ class UrlBlocklistCheck(BaseCheck):
     def __init__(self, url_lists: AllowBlockList, **kwargs) -> None:
         self._lists = url_lists
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
+    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
         domain = _extract_domain(target)
         if self._lists.is_blocked(domain):
             return CheckResult.fail(f"domain '{domain}' is blocklisted")

@@ -23,7 +23,7 @@ class PypiRegistryCheck(BaseCheck):
     def __init__(self, session: aiohttp.ClientSession, **kwargs) -> None:
         self._session = session
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
+    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
         encoded = quote(target, safe="")
         url = f"https://pypi.org/pypi/{encoded}/json"
         try:

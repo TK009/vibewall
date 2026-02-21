@@ -20,7 +20,7 @@ class PypiTyposquatCheck(BaseCheck):
         self._lists = pypi_lists
         self._max_distance = max_distance
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
+    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
         # If allowlisted, skip typosquat check
         allowlist_data = context.data("pypi_allowlist")
         if allowlist_data.get("allowlisted"):

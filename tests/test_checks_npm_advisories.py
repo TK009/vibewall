@@ -161,6 +161,61 @@ class TestNpmAdvisoriesCheck:
         assert result.status == CheckStatus.ERR
         assert "failed" in result.reason
 
+    async def test_version_included_in_osv_payload(self) -> None:
+        session = _make_session(200, {"vulns": []})
+        check = NpmAdvisoriesCheck(session=session)
+        await check.run("lodash", CheckContext(), version="4.17.21")
+        call_kwargs = session.post.call_args
+        payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        assert payload["version"] == "4.17.21"
+
+    async def test_no_version_omits_version_field(self) -> None:
+        session = _make_session(200, {"vulns": []})
+        check = NpmAdvisoriesCheck(session=session)
+        await check.run("lodash", CheckContext())
+        call_kwargs = session.post.call_args
+        payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        assert "version" not in payload
+
+    async def test_version_filters_unaffected_vulns(self) -> None:
+        session = _make_session(200, {"vulns": [
+            {
+                "id": "GHSA-old",
+                "summary": "old vuln",
+                "database_specific": {"severity": "CRITICAL"},
+                "affected": [{"versions": ["3.0.0", "3.1.0"]}],
+            },
+        ]})
+        check = NpmAdvisoriesCheck(session=session)
+        result = await check.run("lodash", CheckContext(), version="4.17.21")
+        assert result.status == CheckStatus.OK
+        assert "no known advisories" in result.reason
+
+    async def test_version_keeps_affected_vulns(self) -> None:
+        session = _make_session(200, {"vulns": [
+            {
+                "id": "GHSA-bad",
+                "summary": "bad vuln",
+                "database_specific": {"severity": "CRITICAL"},
+                "affected": [{"versions": ["4.17.21", "4.17.20"]}],
+            },
+        ]})
+        check = NpmAdvisoriesCheck(session=session)
+        result = await check.run("lodash", CheckContext(), version="4.17.21")
+        assert result.status == CheckStatus.FAIL
+
+    async def test_version_no_affected_data_assumes_affected(self) -> None:
+        session = _make_session(200, {"vulns": [
+            {
+                "id": "GHSA-unk",
+                "summary": "unknown",
+                "database_specific": {"severity": "HIGH"},
+            },
+        ]})
+        check = NpmAdvisoriesCheck(session=session)
+        result = await check.run("lodash", CheckContext(), version="4.17.21")
+        assert result.status == CheckStatus.FAIL
+
     async def test_advisories_data_in_result(self) -> None:
         session = _make_session(200, {"vulns": [
             {

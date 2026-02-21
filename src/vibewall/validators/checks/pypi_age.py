@@ -16,7 +16,7 @@ class PypiAgeCheck(BaseCheck):
         self._min_days = min_days
         self._missing_date = missing_date  # "pass" or "fail"
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
+    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
         registry_data = context.data("pypi_registry").get("registry_data", {})
         releases = registry_data.get("releases", {})
 

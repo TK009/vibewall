@@ -23,6 +23,15 @@ _NPM_PACKAGE_RE = re.compile(r"^/(@[^/]+/[^/]+|[^@/][^/]*)(?:/|$)")
 # Matches: /simple/requests/, /pypi/requests/json
 _PYPI_PACKAGE_RE = re.compile(r"^/(?:simple|pypi)/([^/]+)")
 
+# npm tarball: /@scope/name/-/name-1.2.3.tgz or /lodash/-/lodash-4.17.21.tgz
+_NPM_TARBALL_RE = re.compile(
+    r"^/(@[^/]+/[^/]+|[^@/][^/]*)/-/[^/]+-(\d+\.\d+\.\d+[^/]*)\.tgz$"
+)
+# PyPI download filename: requests-2.28.0.tar.gz, requests-2.28.0-py3-none-any.whl
+_PYPI_DOWNLOAD_RE = re.compile(
+    r"/([A-Za-z0-9][\w.-]*)-(\d+\.\d+[\w.]*?)(?:\.tar\.gz|\.zip|\.whl|-)"
+)
+
 
 class VibewallAddon:
     def __init__(
@@ -44,17 +53,49 @@ class VibewallAddon:
 
         # Route npm registry requests
         if host == "registry.npmjs.org":
+            # Check for tarball download first (has version info)
+            tarball_info = self._extract_npm_tarball_info(flow.request.path)
+            if tarball_info:
+                name, version = tarball_info
+                display_target = f"{name}@{version}"
+                result = await self._run_with_display(
+                    flow, "npm", display_target,
+                    version=version, check_names={"npm_advisories"},
+                )
+                self._handle_result(flow, result, "npm", display_target)
+                return
+
+            # Metadata request — run all checks except advisories
             package_name = self._extract_package_name(flow.request.path)
             if package_name:
-                result = await self._run_with_display(flow, "npm", package_name)
+                result = await self._run_with_display(
+                    flow, "npm", package_name,
+                    check_names_exclude={"npm_advisories"},
+                )
                 self._handle_result(flow, result, "npm", package_name)
+                return
+
+        # Route PyPI download requests (files.pythonhosted.org)
+        if host == "files.pythonhosted.org":
+            download_info = self._extract_pypi_download_info(flow.request.path)
+            if download_info:
+                name, version = download_info
+                display_target = f"{name}@{version}"
+                result = await self._run_with_display(
+                    flow, "pypi", display_target,
+                    version=version, check_names={"pypi_advisories"},
+                )
+                self._handle_result(flow, result, "pypi", display_target)
                 return
 
         # Route PyPI registry requests
         if host == "pypi.org":
             package_name = self._extract_pypi_package_name(flow.request.path)
             if package_name:
-                result = await self._run_with_display(flow, "pypi", package_name)
+                result = await self._run_with_display(
+                    flow, "pypi", package_name,
+                    check_names_exclude={"pypi_advisories"},
+                )
                 self._handle_result(flow, result, "pypi", package_name)
                 return
 
@@ -82,10 +123,27 @@ class VibewallAddon:
             return
         self._display.finish_request(req_id)
 
-    async def _run_with_display(self, flow: http.HTTPFlow, scope: str, target: str) -> RunResult:
+    async def _run_with_display(
+        self,
+        flow: http.HTTPFlow,
+        scope: str,
+        target: str,
+        *,
+        version: str | None = None,
+        check_names: set[str] | None = None,
+        check_names_exclude: set[str] | None = None,
+    ) -> RunResult:
         """Run checks, updating the console display if available."""
+        # Resolve exclusion set into an inclusion set
+        effective_names = check_names
+        if check_names_exclude is not None:
+            all_names = set(self._runner.get_enabled_check_names(scope))
+            effective_names = all_names - check_names_exclude
+
         if self._display is None:
-            return await self._runner.run(scope, target)
+            return await self._runner.run(
+                scope, target, version=version, check_names=effective_names,
+            )
 
         req_id = self._display.begin_request(scope, target)
         self._flow_to_req[flow.id] = req_id
@@ -94,6 +152,8 @@ class VibewallAddon:
             target,
             on_check_done=lambda name, r: self._display.update_check(req_id, name, r),
             on_ask=self._display.prompt_ask,
+            version=version,
+            check_names=effective_names,
         )
         self._display.set_run_result(req_id, result)
 
@@ -157,4 +217,24 @@ class VibewallAddon:
             name = match.group(1).lower()
             name = re.sub(r"[-_.]+", "-", name)
             return name
+        return None
+
+    @staticmethod
+    def _extract_npm_tarball_info(path: str) -> tuple[str, str] | None:
+        """Extract (package_name, version) from an npm tarball URL path."""
+        match = _NPM_TARBALL_RE.match(path)
+        if match:
+            return match.group(1), match.group(2)
+        return None
+
+    @staticmethod
+    def _extract_pypi_download_info(path: str) -> tuple[str, str] | None:
+        """Extract (package_name, version) from a PyPI download URL path."""
+        if not path:
+            return None
+
+        match = _PYPI_DOWNLOAD_RE.search(path)
+        if match:
+            name = re.sub(r"[-_.]+", "-", match.group(1).lower())
+            return name, match.group(2)
         return None

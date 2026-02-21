@@ -20,7 +20,7 @@ class NpmTyposquatCheck(BaseCheck):
         self._lists = lists
         self._max_distance = max_distance
 
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
+    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
         # If allowlisted, skip typosquat check
         allowlist_data = context.data("npm_allowlist")
         if allowlist_data.get("allowlisted"):

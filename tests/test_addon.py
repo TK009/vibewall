@@ -37,6 +37,83 @@ class TestExtractPackageName:
         assert VibewallAddon._extract_package_name("/-/npm/v1/security/advisories") is None
 
 
+class TestExtractNpmTarballInfo:
+    def test_simple_tarball(self) -> None:
+        assert VibewallAddon._extract_npm_tarball_info(
+            "/lodash/-/lodash-4.17.21.tgz"
+        ) == ("lodash", "4.17.21")
+
+    def test_scoped_tarball(self) -> None:
+        assert VibewallAddon._extract_npm_tarball_info(
+            "/@babel/core/-/core-7.24.0.tgz"
+        ) == ("@babel/core", "7.24.0")
+
+    def test_prerelease_version(self) -> None:
+        result = VibewallAddon._extract_npm_tarball_info(
+            "/pkg/-/pkg-1.0.0-beta.1.tgz"
+        )
+        assert result is not None
+        assert result[0] == "pkg"
+        assert result[1] == "1.0.0-beta.1"
+
+    def test_metadata_path_returns_none(self) -> None:
+        assert VibewallAddon._extract_npm_tarball_info("/lodash") is None
+
+    def test_api_endpoint_returns_none(self) -> None:
+        assert VibewallAddon._extract_npm_tarball_info("/-/v1/search") is None
+
+
+class TestExtractPypiDownloadInfo:
+    def test_sdist(self) -> None:
+        result = VibewallAddon._extract_pypi_download_info(
+            "/packages/ab/cd/requests-2.28.0.tar.gz"
+        )
+        assert result == ("requests", "2.28.0")
+
+    def test_wheel(self) -> None:
+        result = VibewallAddon._extract_pypi_download_info(
+            "/packages/ab/cd/requests-2.28.0-py3-none-any.whl"
+        )
+        assert result is not None
+        assert result[0] == "requests"
+        assert result[1] == "2.28.0"
+
+    def test_normalized_name(self) -> None:
+        result = VibewallAddon._extract_pypi_download_info(
+            "/packages/ab/cd/My_Package-1.0.0.tar.gz"
+        )
+        assert result is not None
+        assert result[0] == "my-package"
+
+    def test_empty_path(self) -> None:
+        assert VibewallAddon._extract_pypi_download_info("") is None
+
+
+@pytest.mark.asyncio
+async def test_npm_tarball_runs_advisory_checks() -> None:
+    config = VibewallConfig.load(None)
+    runner = AsyncMock(spec=CheckRunner)
+    runner.get_enabled_check_names = MagicMock(return_value=["npm_advisories"])
+    runner.run = AsyncMock(return_value=RunResult(
+        allowed=True, reason="no advisories", results=[]
+    ))
+
+    addon = VibewallAddon(config, runner)
+
+    flow = MagicMock()
+    flow.request.pretty_host = "registry.npmjs.org"
+    flow.request.pretty_url = "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"
+    flow.request.path = "/lodash/-/lodash-4.17.21.tgz"
+    flow.response = None
+
+    await addon.request(flow)
+
+    runner.run.assert_called_once()
+    call_kwargs = runner.run.call_args
+    assert call_kwargs.kwargs["version"] == "4.17.21"
+    assert call_kwargs.kwargs["check_names"] == {"npm_advisories"}
+
+
 @pytest.mark.asyncio
 async def test_npm_request_blocked() -> None:
     config = VibewallConfig.load(None)

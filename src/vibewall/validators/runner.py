@@ -46,8 +46,13 @@ class CheckRunner:
         target: str,
         on_check_done: OnCheckDone = None,
         on_ask: OnAsk = None,
+        *,
+        version: str | None = None,
+        check_names: set[str] | None = None,
     ) -> RunResult:
         enabled = self._get_enabled_checks(scope)
+        if check_names is not None:
+            enabled = [c for c in enabled if c.name in check_names]
         if not enabled:
             return RunResult(
                 allowed=True, reason="no checks configured", results=[]
@@ -56,7 +61,7 @@ class CheckRunner:
         timeout = self._config.pipeline_timeout
         try:
             return await asyncio.wait_for(
-                self._run_checks(enabled, target, on_check_done, on_ask),
+                self._run_checks(enabled, target, on_check_done, on_ask, version=version),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -74,6 +79,8 @@ class CheckRunner:
         target: str,
         on_check_done: OnCheckDone = None,
         on_ask: OnAsk = None,
+        *,
+        version: str | None = None,
     ) -> RunResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
@@ -99,7 +106,7 @@ class CheckRunner:
 
             if to_run:
                 results = await asyncio.gather(
-                    *[check.run(target, context) for check in to_run]
+                    *[check.run(target, context, version=version) for check in to_run]
                 )
                 for check, result in zip(to_run, results):
                     display = await maybe_ask(check.name, target, result, self._config, on_ask)
