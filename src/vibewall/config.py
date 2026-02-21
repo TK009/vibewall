@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,7 +11,7 @@ log = logging.getLogger(__name__)
 
 from vibewall.validators.checks import VALIDATOR_DEFAULTS
 
-_VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block"}
+_VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block", "ask-llm-allow", "ask-llm-block"}
 
 
 def _validate_action(action: str) -> str:
@@ -45,6 +46,16 @@ class NotificationsConfig:
 
 
 @dataclass
+class LlmConfig:
+    provider: str = "anthropic"  # "anthropic" or "openai"
+    model: str = "claude-sonnet-4-20250514"
+    api_key: str = ""  # raw key or "$ENV_VAR_NAME"
+    base_url: str | None = None  # override for OpenAI-compatible endpoints
+    max_tokens: int = 256
+    temperature: float = 0.0
+
+
+@dataclass
 class CacheConfig:
     default_ttl: int = 3600
     max_entries: int = 50000
@@ -60,6 +71,7 @@ class VibewallConfig:
     validators: dict[str, ValidatorConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
+    llm: LlmConfig | None = None
     config_dir: Path = field(default_factory=lambda: Path("config"))
 
     def get_validator(self, name: str) -> ValidatorConfig | None:
@@ -103,6 +115,21 @@ class VibewallConfig:
                 warned=n.get("warned", cfg.notifications.warned),
                 ask=n.get("ask", cfg.notifications.ask),
                 expire_ms=n.get("expire_ms", cfg.notifications.expire_ms),
+            )
+
+        # LLM config
+        if "llm" in data:
+            llm_data = data["llm"]
+            api_key = llm_data.get("api_key", "")
+            if isinstance(api_key, str) and api_key.startswith("$"):
+                api_key = os.environ.get(api_key[1:], "")
+            cfg.llm = LlmConfig(
+                provider=llm_data.get("provider", "anthropic"),
+                model=llm_data.get("model", "claude-sonnet-4-20250514"),
+                api_key=api_key,
+                base_url=llm_data.get("base_url"),
+                max_tokens=llm_data.get("max_tokens", 256),
+                temperature=llm_data.get("temperature", 0.0),
             )
 
         # Per-validator config from [validators.*] sections

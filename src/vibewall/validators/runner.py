@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
-from vibewall.validators.action import maybe_ask, maybe_downgrade
+from vibewall.validators.action import maybe_ask, maybe_ask_llm, maybe_downgrade
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.checks import SCOPE_ORDER
+
+if TYPE_CHECKING:
+    from vibewall.llm.client import LlmClient
+    from vibewall.llm.history import RequestHistory
 
 logger = structlog.get_logger()
 
@@ -28,10 +33,14 @@ class CheckRunner:
         checks: list[BaseCheck],
         config: VibewallConfig,
         cache: TTLCache,
+        llm_client: LlmClient | None = None,
+        history: RequestHistory | None = None,
     ) -> None:
         self._checks = {c.name: c for c in checks}
         self._config = config
         self._cache = cache
+        self._llm_client = llm_client
+        self._history = history
 
     def get_enabled_check_names(self, scope: str) -> list[str]:
         """Return ordered list of enabled check names for a scope."""
@@ -62,7 +71,7 @@ class CheckRunner:
         try:
             return await asyncio.wait_for(
                 self._run_checks(
-                    enabled, target, on_check_done, on_ask, version=version,
+                    scope, enabled, target, on_check_done, on_ask, version=version,
                 ),
                 timeout=timeout,
             )
@@ -77,6 +86,7 @@ class CheckRunner:
 
     async def _run_checks(
         self,
+        scope: str,
         enabled: list[BaseCheck],
         target: str,
         on_check_done: OnCheckDone = None,
@@ -112,6 +122,12 @@ class CheckRunner:
                 )
                 for check, result in zip(to_run, results):
                     display = await maybe_ask(check.name, target, result, self._config, on_ask)
+                    display = await maybe_ask_llm(
+                        check.name, target, scope, display,
+                        all_results, self._config,
+                        self._llm_client,
+                        self._history.recent() if self._history else None,
+                    )
                     display = maybe_downgrade(check.name, display, self._config)
                     all_results.append((check.name, display))
                     context.add(check.name, result)
@@ -132,9 +148,31 @@ class CheckRunner:
                     # Signal skipped checks
                     for name in all_enabled_names - completed_names:
                         self._notify(on_check_done, name, None)
-                    return self._finalize(all_results, short_circuit=(check.name, result))
+                    run_result = self._finalize(all_results, short_circuit=(check.name, result))
+                    self._record_history(scope, target, all_results, run_result)
+                    return run_result
 
-        return self._finalize(all_results)
+        run_result = self._finalize(all_results)
+        self._record_history(scope, target, all_results, run_result)
+        return run_result
+
+    def _record_history(
+        self,
+        scope: str,
+        target: str,
+        all_results: list[tuple[str, CheckResult]],
+        run_result: RunResult,
+    ) -> None:
+        if self._history is None:
+            return
+        from vibewall.llm.history import HistoryEntry
+
+        self._history.add(HistoryEntry(
+            scope=scope,
+            target=target,
+            results=list(all_results),
+            outcome="allowed" if run_result.allowed else "blocked",
+        ))
 
     @staticmethod
     def _notify(

@@ -86,6 +86,14 @@ severity_high = "warn"
 severity_critical = "ask-block"
 cache_ttl = 3600
 
+# [llm]
+# provider = "anthropic"                    # "anthropic" or "openai"
+# model = "claude-sonnet-4-20250514"        # model name
+# api_key = "$ANTHROPIC_API_KEY"            # raw key or "$ENV_VAR_NAME"
+# base_url = ""                             # override for OpenAI-compatible endpoints
+# max_tokens = 256
+# temperature = 0.0
+
 [notifications]
 # enabled = true        # auto-detect notify-send on PATH
 # blocked = true        # notify on blocked requests

@@ -98,7 +98,20 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     session = aiohttp.ClientSession(trust_env=False)
 
     checks = _build_checks(config, npm_lists, url_lists, pypi_lists, session)
-    runner = CheckRunner(checks, config, cache)
+
+    # LLM client + request history for ask-llm-* actions
+    llm_client = None
+    if config.llm and config.llm.api_key:
+        from vibewall.llm.client import LlmClient
+
+        llm_client = LlmClient(config.llm, session)
+        logger.info("llm_client_enabled", provider=config.llm.provider, model=config.llm.model)
+
+    from vibewall.llm.history import RequestHistory
+
+    history = RequestHistory(maxlen=50)
+
+    runner = CheckRunner(checks, config, cache, llm_client=llm_client, history=history)
 
     # Build notifier
     notifier = Notifier(
