@@ -19,7 +19,7 @@ class StubCheck(BaseCheck):
         self._result = result or CheckResult.ok("stub ok")
         self.called = False
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         self.called = True
         return self._result
 
@@ -118,7 +118,7 @@ class TestCheckRunner:
             depends_on = ["npm_registry"]
             scope = "npm"
             def __init__(self): pass
-            async def run(self, target, context, **_kw):
+            async def run(self, target, context):
                 data = context.data("npm_registry")
                 if data.get("status_code") == 200:
                     return CheckResult.ok("exists")

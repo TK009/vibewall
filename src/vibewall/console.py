@@ -13,8 +13,8 @@ from vibewall.models import CheckResult, CheckStatus, RunResult
 from vibewall.notifications import Notifier
 from vibewall.prompter import InteractivePrompter
 
-# Scope-dependent target column widths
-_TARGET_WIDTH: dict[str, int] = {"npm": 14, "url": 40, "pypi": 14}
+# Scope-dependent target column widths, TODO: calculate based on number of checks to match the last return code and time
+_TARGET_WIDTH: dict[str, int] = {"npm": 24, "url": 44, "pypi": 24}
 
 # Status → 4-char cell text
 _STATUS_CELL: dict[CheckStatus, str] = {
@@ -224,7 +224,9 @@ class ConsoleDisplay:
             text += f" [dim]{extra}[/dim]"
         self._console.print(text)
 
-    async def prompt_ask(self, check_name: str, target: str, result: CheckResult) -> bool:
+    async def prompt_ask(
+        self, check_name: str, target: str, result: CheckResult
+    ) -> bool:
         """Delegate interactive prompting to the InteractivePrompter."""
         return await self._prompter.prompt_ask(check_name, target, result)
 
@@ -420,12 +422,19 @@ class ConsoleDisplay:
     @staticmethod
     def _worst_result(run_result: RunResult) -> CheckResult | None:
         """Return the most severe non-OK result, or None if all OK."""
-        _SEVERITY = {CheckStatus.OK: 0, CheckStatus.ERR: 1, CheckStatus.SUS: 2, CheckStatus.FAIL: 3}
+        _SEVERITY = {
+            CheckStatus.OK: 0,
+            CheckStatus.ERR: 1,
+            CheckStatus.SUS: 2,
+            CheckStatus.FAIL: 3,
+        }
         worst: CheckResult | None = None
         for _, cr in run_result.results:
             if cr.status == CheckStatus.OK:
                 continue
-            if worst is None or _SEVERITY.get(cr.status, 0) > _SEVERITY.get(worst.status, 0):
+            if worst is None or _SEVERITY.get(cr.status, 0) > _SEVERITY.get(
+                worst.status, 0
+            ):
                 worst = cr
         return worst
 

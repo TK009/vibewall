@@ -13,7 +13,7 @@ class NpmExistenceCheck(BaseCheck):
     def __init__(self, **kwargs) -> None:
         pass
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         registry_data = context.data("npm_registry")
         status_code = registry_data.get("status_code")
 

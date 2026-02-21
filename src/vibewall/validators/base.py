@@ -21,8 +21,6 @@ class BaseCheck(ABC):
             )
 
     @abstractmethod
-    async def run(
-        self, target: str, context: CheckContext, *, version: str | None = None
-    ) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         """Run the check. context holds results/data from dependencies."""
         ...

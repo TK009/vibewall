@@ -38,8 +38,9 @@ class CheckResult:
 class CheckContext:
     """Carries accumulated data from completed dependency checks."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, version: str | None = None) -> None:
         self._results: dict[str, CheckResult] = {}
+        self.version = version
 
     def add(self, name: str, result: CheckResult) -> None:
         self._results[name] = result

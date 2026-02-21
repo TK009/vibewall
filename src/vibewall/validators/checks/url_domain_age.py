@@ -22,7 +22,7 @@ class UrlDomainAgeCheck(BaseCheck):
     def __init__(self, min_days: int = 30, **kwargs) -> None:
         self._min_days = min_days
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         from urllib.parse import urlparse
 
         domain = urlparse(target).hostname or ""

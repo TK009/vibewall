@@ -6,63 +6,14 @@ import aiohttp
 
 from vibewall.models import CheckContext, CheckResult
 from vibewall.validators.base import BaseCheck
-
-# Severity levels in ascending order of restrictiveness
-_SEVERITY_ORDER = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}
-_ACTION_ORDER = {"allow": 0, "warn": 1, "ask": 2, "block": 3}
-
-_OSV_API_URL = "https://api.osv.dev/v1/query"
-
-
-def _cvss_to_severity(score: float) -> str:
-    if score >= 9.0:
-        return "CRITICAL"
-    if score >= 7.0:
-        return "HIGH"
-    if score >= 4.0:
-        return "MODERATE"
-    return "LOW"
-
-
-def _extract_severity(vuln: dict) -> str:
-    """Extract severity from an OSV vulnerability entry."""
-    # Try database_specific.severity first (GitHub advisories use this)
-    db_specific = vuln.get("database_specific", {})
-    if "severity" in db_specific:
-        raw = db_specific["severity"].upper()
-        if raw in _SEVERITY_ORDER:
-            return raw
-
-    # Try CVSS score from severity array
-    for sev in vuln.get("severity", []):
-        score_str = sev.get("score", "")
-        if sev.get("type") == "CVSS_V3":
-            try:
-                score = float(score_str.split("/")[0].split(":")[-1])
-                return _cvss_to_severity(score)
-            except (ValueError, IndexError):
-                pass
-
-    # Fallback: treat unknown severity as HIGH to be safe
-    return "HIGH"
-
-
-def _affects_version(vuln: dict, version: str) -> bool:
-    """Check if a vulnerability affects the given version.
-
-    Uses the ``affected[].versions`` list from OSV responses.  If the
-    vulnerability has no ``affected`` data we conservatively assume it
-    applies.
-    """
-    affected = vuln.get("affected", [])
-    if not affected:
-        return True  # no data → assume affected
-
-    for entry in affected:
-        if version in entry.get("versions", []):
-            return True
-
-    return False
+from vibewall.validators.checks._osv import (
+    ACTION_ORDER,
+    OSV_API_URL,
+    SEVERITY_ORDER,
+    affects_version,
+    cvss_to_severity,
+    extract_severity,
+)
 
 
 class PypiAdvisoriesCheck(BaseCheck):
@@ -89,15 +40,19 @@ class PypiAdvisoriesCheck(BaseCheck):
             "CRITICAL": severity_critical,
         }
 
-    async def run(
-        self, target: str, context: CheckContext, *, version: str | None = None, **_kw: object,
-    ) -> CheckResult:
-        payload: dict = {"package": {"name": target, "ecosystem": "PyPI"}}
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
+        version = context.version
+        # Strip @version suffix — download requests use "pkg@1.0.0" as target
+        # for cache isolation, but the OSV API needs the bare package name.
+        pkg_name = target
+        if version and target.endswith(f"@{version}"):
+            pkg_name = target[: -len(version) - 1]
+        payload: dict = {"package": {"name": pkg_name, "ecosystem": "PyPI"}}
         if version is not None:
             payload["version"] = version
         try:
             async with self._session.post(
-                _OSV_API_URL,
+                OSV_API_URL,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
@@ -113,7 +68,7 @@ class PypiAdvisoriesCheck(BaseCheck):
 
         vulns = data.get("vulns", [])
         if version is not None:
-            vulns = [v for v in vulns if _affects_version(v, version)]
+            vulns = [v for v in vulns if affects_version(v, version)]
         if not vulns:
             return CheckResult.ok(f"no known advisories for '{target}'")
 
@@ -122,7 +77,7 @@ class PypiAdvisoriesCheck(BaseCheck):
         effective_action = "allow"
 
         for vuln in vulns:
-            severity = _extract_severity(vuln)
+            severity = extract_severity(vuln)
             action = self._severity_actions.get(severity, "block")
             vuln_id = vuln.get("id", "unknown")
             summary = vuln.get("summary", "no description")
@@ -137,7 +92,7 @@ class PypiAdvisoriesCheck(BaseCheck):
             })
 
             # Track the most restrictive action
-            if _ACTION_ORDER.get(action, 2) > _ACTION_ORDER.get(effective_action, 0):
+            if ACTION_ORDER.get(action, 2) > ACTION_ORDER.get(effective_action, 0):
                 effective_action = action
 
         non_allowed = [a for a in advisories if a["action"] != "allow"]
@@ -156,7 +111,7 @@ class PypiAdvisoriesCheck(BaseCheck):
             f"{count} {sev.lower()}"
             for sev, count in sorted(
                 severity_counts.items(),
-                key=lambda x: _SEVERITY_ORDER.get(x[0], 0),
+                key=lambda x: SEVERITY_ORDER.get(x[0], 0),
                 reverse=True,
             )
         )

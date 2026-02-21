@@ -28,8 +28,10 @@ _NPM_TARBALL_RE = re.compile(
     r"^/(@[^/]+/[^/]+|[^@/][^/]*)/-/[^/]+-(\d+\.\d+\.\d+[^/]*)\.tgz$"
 )
 # PyPI download filename: requests-2.28.0.tar.gz, requests-2.28.0-py3-none-any.whl
+# Use greedy name capture so the *last* `-<version>` boundary is matched,
+# handling hyphenated package names like my-cool-package-1.0.0.tar.gz.
 _PYPI_DOWNLOAD_RE = re.compile(
-    r"/([A-Za-z0-9][\w.-]*)-(\d+\.\d+[\w.]*?)(?:\.tar\.gz|\.zip|\.whl|-)"
+    r"/([A-Za-z0-9][\w.-]*)-(\d+(?:\.\d+)+[\w.]*?)(?:\.tar\.gz|\.zip|\.whl|-)"
 )
 
 

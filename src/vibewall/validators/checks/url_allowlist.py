@@ -16,7 +16,7 @@ class UrlAllowlistCheck(BaseCheck):
     def __init__(self, url_lists: AllowBlockList, **kwargs) -> None:
         self._lists = url_lists
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         domain = urlparse(target).hostname or ""
         if self._lists.is_allowed(domain):
             return CheckResult.ok(

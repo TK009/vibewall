@@ -61,7 +61,9 @@ class CheckRunner:
         timeout = self._config.pipeline_timeout
         try:
             return await asyncio.wait_for(
-                self._run_checks(enabled, target, on_check_done, on_ask, version=version),
+                self._run_checks(
+                    enabled, target, on_check_done, on_ask, version=version,
+                ),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -86,7 +88,7 @@ class CheckRunner:
         layers = self._topological_layers(enabled)
         # context keeps raw results (dependencies need original FAIL status),
         # all_results keeps display results (FAIL downgraded to SUS for warns/asks).
-        context = CheckContext()
+        context = CheckContext(version=version)
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
 
@@ -106,7 +108,7 @@ class CheckRunner:
 
             if to_run:
                 results = await asyncio.gather(
-                    *[check.run(target, context, version=version) for check in to_run]
+                    *[check.run(target, context) for check in to_run]
                 )
                 for check, result in zip(to_run, results):
                     display = await maybe_ask(check.name, target, result, self._config, on_ask)

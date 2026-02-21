@@ -16,7 +16,7 @@ class NpmAgeCheck(BaseCheck):
         self._min_days = min_days
         self._missing_date = missing_date  # "pass" or "fail"
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         registry_data = context.data("npm_registry").get("registry_data", {})
         time_data = registry_data.get("time", {})
         created_str = time_data.get("created")

@@ -26,7 +26,7 @@ class PypiDownloadsCheck(BaseCheck):
         self._session = session
         self._min_weekly = min_weekly
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         encoded = quote(target, safe="")
         url = f"https://pypistats.org/api/packages/{encoded}/recent"
         try:

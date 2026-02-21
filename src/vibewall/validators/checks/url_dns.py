@@ -21,7 +21,7 @@ class UrlDnsCheck(BaseCheck):
     def __init__(self, **kwargs) -> None:
         pass
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         domain = urlparse(target).hostname or ""
         if not domain:
             return CheckResult.fail("could not parse domain from URL")

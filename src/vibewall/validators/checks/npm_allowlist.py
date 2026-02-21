@@ -14,7 +14,7 @@ class NpmAllowlistCheck(BaseCheck):
     def __init__(self, lists: AllowBlockList, **kwargs) -> None:
         self._lists = lists
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         if self._lists.is_allowed(target):
             return CheckResult.ok(
                 f"package '{target}' is allowlisted", allowlisted=True

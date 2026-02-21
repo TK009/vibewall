@@ -23,7 +23,7 @@ class NpmRegistryCheck(BaseCheck):
     def __init__(self, session: aiohttp.ClientSession, **kwargs) -> None:
         self._session = session
 
-    async def run(self, target: str, context: CheckContext, **_kw: object) -> CheckResult:
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
         encoded = quote(target, safe="@")
         url = f"https://registry.npmjs.org/{encoded}"
         try:

@@ -85,8 +85,74 @@ class TestExtractPypiDownloadInfo:
         assert result is not None
         assert result[0] == "my-package"
 
+    def test_hyphenated_package_name(self) -> None:
+        result = VibewallAddon._extract_pypi_download_info(
+            "/packages/ab/cd/my-cool-package-1.0.0.tar.gz"
+        )
+        assert result == ("my-cool-package", "1.0.0")
+
+    def test_multi_hyphen_package_name(self) -> None:
+        result = VibewallAddon._extract_pypi_download_info(
+            "/packages/ab/cd/azure-storage-blob-12.19.0.tar.gz"
+        )
+        assert result == ("azure-storage-blob", "12.19.0")
+
     def test_empty_path(self) -> None:
         assert VibewallAddon._extract_pypi_download_info("") is None
+
+
+@pytest.mark.asyncio
+async def test_pypi_download_runs_advisory_checks() -> None:
+    config = VibewallConfig.load(None)
+    runner = AsyncMock(spec=CheckRunner)
+    runner.get_enabled_check_names = MagicMock(return_value=["pypi_advisories"])
+    runner.run = AsyncMock(return_value=RunResult(
+        allowed=True, reason="no advisories", results=[]
+    ))
+
+    addon = VibewallAddon(config, runner)
+
+    flow = MagicMock()
+    flow.request.pretty_host = "files.pythonhosted.org"
+    flow.request.pretty_url = "https://files.pythonhosted.org/packages/ab/cd/requests-2.28.0.tar.gz"
+    flow.request.path = "/packages/ab/cd/requests-2.28.0.tar.gz"
+    flow.response = None
+
+    await addon.request(flow)
+
+    runner.run.assert_called_once()
+    call_kwargs = runner.run.call_args
+    assert call_kwargs.kwargs["version"] == "2.28.0"
+    assert call_kwargs.kwargs["check_names"] == {"pypi_advisories"}
+
+
+@pytest.mark.asyncio
+async def test_npm_metadata_excludes_advisories() -> None:
+    config = VibewallConfig.load(None)
+    runner = AsyncMock(spec=CheckRunner)
+    runner.get_enabled_check_names = MagicMock(
+        return_value=["npm_blocklist", "npm_registry", "npm_advisories"]
+    )
+    runner.run = AsyncMock(return_value=RunResult(
+        allowed=True, reason="all checks passed", results=[]
+    ))
+
+    addon = VibewallAddon(config, runner)
+
+    flow = MagicMock()
+    flow.request.pretty_host = "registry.npmjs.org"
+    flow.request.pretty_url = "https://registry.npmjs.org/lodash"
+    flow.request.path = "/lodash"
+    flow.response = None
+
+    await addon.request(flow)
+
+    runner.run.assert_called_once()
+    call_kwargs = runner.run.call_args
+    # advisories should be excluded from metadata requests
+    assert "npm_advisories" not in call_kwargs.kwargs["check_names"]
+    assert "npm_blocklist" in call_kwargs.kwargs["check_names"]
+    assert "npm_registry" in call_kwargs.kwargs["check_names"]
 
 
 @pytest.mark.asyncio
