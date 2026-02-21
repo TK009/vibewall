@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # Severity levels in ascending order of restrictiveness
 SEVERITY_ORDER = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}
-ACTION_ORDER = {"allow": 0, "warn": 1, "ask": 2, "block": 3}
+ACTION_ORDER = {"allow": 0, "warn": 1, "ask-allow": 2, "ask-block": 3, "block": 4}
 
 OSV_API_URL = "https://api.osv.dev/v1/query"
 

@@ -33,10 +33,11 @@ class TestPypiAdvisoriesCheck:
     async def test_version_included_in_osv_payload(self) -> None:
         session = _make_session(200, {"vulns": []})
         check = PypiAdvisoriesCheck(session=session)
-        await check.run("requests", CheckContext(version="2.28.0"))
+        await check.run("requests@2.28.0", CheckContext(version="2.28.0"))
         call_kwargs = session.post.call_args
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         assert payload["version"] == "2.28.0"
+        assert payload["package"]["name"] == "requests"
         assert payload["package"]["ecosystem"] == "PyPI"
 
     async def test_no_version_omits_version_field(self) -> None:

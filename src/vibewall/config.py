@@ -10,10 +10,14 @@ log = logging.getLogger(__name__)
 
 from vibewall.validators.checks import VALIDATOR_DEFAULTS
 
-_VALID_ACTIONS = {"block", "warn", "ask"}
+_VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block"}
 
 
 def _validate_action(action: str) -> str:
+    if action == "ask":
+        raise ValueError(
+            "action 'ask' was removed; use 'ask-allow' or 'ask-block' instead"
+        )
     if action not in _VALID_ACTIONS:
         raise ValueError(
             f"invalid action '{action}', must be one of: {', '.join(sorted(_VALID_ACTIONS))}"
@@ -51,7 +55,7 @@ class VibewallConfig:
     port: int = 7777
     host: str = "0.0.0.0"
     pipeline_timeout: int = (
-        30  # seconds; max time for entire check pipeline per request
+        120  # seconds; max time for entire check pipeline per request
     )
     validators: dict[str, ValidatorConfig] = field(default_factory=dict)
     cache: CacheConfig = field(default_factory=CacheConfig)

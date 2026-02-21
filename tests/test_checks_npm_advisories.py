@@ -308,19 +308,19 @@ class TestNpmAdvisoriesCheck:
             severity_low="allow",
             severity_medium="warn",
             severity_high="warn",
-            severity_critical="ask",
+            severity_critical="ask-block",
         )
         result = await check.run(
             "fast-xml-parser@5.3.4", CheckContext(version="5.3.4"),
         )
 
         assert result.status == CheckStatus.FAIL
-        assert result.data["action_override"] == "ask"
+        assert result.data["action_override"] == "ask-block"
         # Verify per-advisory actions reflect config
         advisories = result.data["advisories"]
         by_id = {a["id"]: a for a in advisories}
         assert by_id["GHSA-jmr7-xgp7-cmfj"]["action"] == "warn"
-        assert by_id["GHSA-m7jm-9gc2-mpf2"]["action"] == "ask"
+        assert by_id["GHSA-m7jm-9gc2-mpf2"]["action"] == "ask-block"
 
     async def test_advisories_data_in_result(self) -> None:
         session = _make_session(200, {"vulns": [
@@ -343,8 +343,8 @@ class TestNpmAdvisoriesCheck:
 class TestAdvisoryRunnerIntegration:
     """End-to-end tests running npm_advisories through CheckRunner with config."""
 
-    async def test_ask_action_triggers_prompt(self) -> None:
-        """With severity_critical='ask', the runner should invoke on_ask
+    async def test_ask_block_triggers_prompt(self) -> None:
+        """With severity_critical='ask-block', the runner should invoke on_ask
         and downgrade to SUS when the user approves."""
         from vibewall.cache.store import TTLCache
         from vibewall.config import VibewallConfig, ValidatorConfig
@@ -356,7 +356,7 @@ class TestAdvisoryRunnerIntegration:
             severity_low="allow",
             severity_medium="warn",
             severity_high="warn",
-            severity_critical="ask",
+            severity_critical="ask-block",
         )
 
         config = VibewallConfig()
@@ -379,8 +379,8 @@ class TestAdvisoryRunnerIntegration:
         check_results = dict(result.results)
         assert check_results["npm_advisories"].status == CheckStatus.SUS
 
-    async def test_ask_action_denied_blocks(self) -> None:
-        """When the user denies an ask prompt, the request should be blocked."""
+    async def test_ask_block_denied_blocks(self) -> None:
+        """When the user denies an ask-block prompt, the request should be blocked."""
         from vibewall.cache.store import TTLCache
         from vibewall.config import VibewallConfig, ValidatorConfig
         from vibewall.validators.runner import CheckRunner
@@ -391,7 +391,7 @@ class TestAdvisoryRunnerIntegration:
             severity_low="allow",
             severity_medium="warn",
             severity_high="warn",
-            severity_critical="ask",
+            severity_critical="ask-block",
         )
 
         config = VibewallConfig()
@@ -413,8 +413,8 @@ class TestAdvisoryRunnerIntegration:
         check_results = dict(result.results)
         assert check_results["npm_advisories"].status == CheckStatus.FAIL
 
-    async def test_ask_action_no_callback_blocks(self) -> None:
-        """Without an on_ask callback (headless mode), ask should block."""
+    async def test_ask_block_no_callback_blocks(self) -> None:
+        """Without an on_ask callback (headless mode), ask-block should block."""
         from vibewall.cache.store import TTLCache
         from vibewall.config import VibewallConfig, ValidatorConfig
         from vibewall.validators.runner import CheckRunner
@@ -425,7 +425,7 @@ class TestAdvisoryRunnerIntegration:
             severity_low="allow",
             severity_medium="warn",
             severity_high="warn",
-            severity_critical="ask",
+            severity_critical="ask-block",
         )
 
         config = VibewallConfig()
@@ -436,7 +436,7 @@ class TestAdvisoryRunnerIntegration:
 
         # No on_ask callback — simulates headless / no TTY
         result = await runner.run(
-            "npm", "fast-xml-parser",
+            "npm", "fast-xml-parser@5.3.4",
             version="5.3.4",
             check_names={"npm_advisories"},
         )

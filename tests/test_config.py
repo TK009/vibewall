@@ -66,6 +66,16 @@ max_distance = 5
     assert cfg.validators["npm_typosquat"].params["max_distance"] == 5
 
 
+def test_legacy_ask_action_gives_helpful_error(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[validators.npm_blocklist]
+action = "ask"
+""")
+    with pytest.raises(ValueError, match="use 'ask-allow' or 'ask-block' instead"):
+        VibewallConfig.load(toml)
+
+
 def test_disabled_validator() -> None:
     cfg = VibewallConfig.load(None)
     del cfg.validators["npm_downloads"]

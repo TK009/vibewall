@@ -1,5 +1,6 @@
 port = 7777
 host = "0.0.0.0"
+pipeline_timeout = 120  # seconds; set high enough for interactive "ask" prompts
 
 [validators.npm_blocklist]
 action = "block"
@@ -33,7 +34,7 @@ action = "block"
 severity_low = "allow"
 severity_medium = "warn"
 severity_high = "warn"
-severity_critical = "ask"
+severity_critical = "ask-block"
 cache_ttl = 3600
 
 [validators.url_blocklist]
@@ -82,7 +83,7 @@ action = "block"
 severity_low = "allow"
 severity_medium = "warn"
 severity_high = "warn"
-severity_critical = "ask"
+severity_critical = "ask-block"
 cache_ttl = 3600
 
 [notifications]
