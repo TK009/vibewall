@@ -10,7 +10,7 @@ from vibewall.llm.client import LlmClient
 from vibewall.llm.history import HistoryEntry, RequestHistory
 from vibewall.llm.prompt import build_llm_prompt
 from vibewall.models import CheckContext, CheckResult, CheckStatus
-from vibewall.validators.action import _parse_llm_decision, batch_ask_llm
+from vibewall.validators.action import _parse_llm_decision, batch_ask_llm, resolve_llm_per_check
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.runner import CheckRunner
 
@@ -405,8 +405,8 @@ class TestRunnerLlmIntegration:
             [check], config, TTLCache(),
             llm_client=mock_client, history=history,
         )
-        result = await runner.run("npm", "suspicious-pkg")
-        assert result.blocked
+        pipeline = await runner.run("npm", "suspicious-pkg")
+        assert pipeline.run_result.blocked
 
     async def test_ask_llm_allow_with_mock_client(self) -> None:
         config = VibewallConfig()
@@ -424,8 +424,8 @@ class TestRunnerLlmIntegration:
             [check], config, TTLCache(),
             llm_client=mock_client, history=history,
         )
-        result = await runner.run("npm", "safe-pkg")
-        assert result.allowed
+        pipeline = await runner.run("npm", "safe-pkg")
+        assert pipeline.run_result.allowed
 
     async def test_history_recorded_after_run(self) -> None:
         config = VibewallConfig()
@@ -453,8 +453,8 @@ class TestRunnerLlmIntegration:
         check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
 
         runner = CheckRunner([check], config, TTLCache())
-        result = await runner.run("npm", "test-pkg")
-        assert result.blocked
+        pipeline = await runner.run("npm", "test-pkg")
+        assert pipeline.run_result.blocked
 
     async def test_multiple_llm_checks_single_call(self) -> None:
         """Multiple ask-llm checks should produce exactly one LLM call."""
@@ -475,8 +475,8 @@ class TestRunnerLlmIntegration:
             checks, config, TTLCache(),
             llm_client=mock_client, history=history,
         )
-        result = await runner.run("npm", "test-pkg")
-        assert result.blocked
+        pipeline = await runner.run("npm", "test-pkg")
+        assert pipeline.run_result.blocked
         mock_client.ask.assert_called_once()
 
 
@@ -507,11 +507,11 @@ class TestLlmDecisionCaching:
         runner = self._make_runner(mock_client, cache)
 
         r1 = await runner.run("npm", "test-pkg")
-        assert r1.allowed
+        assert r1.run_result.allowed
         assert mock_client.ask.call_count == 1
 
         r2 = await runner.run("npm", "test-pkg")
-        assert r2.allowed
+        assert r2.run_result.allowed
         # LLM should NOT be called a second time
         assert mock_client.ask.call_count == 1
 
@@ -534,10 +534,10 @@ class TestLlmDecisionCaching:
         runner = self._make_runner(mock_client, cache)
 
         r1 = await runner.run("npm", "pkg-a")
-        assert r1.blocked
+        assert r1.run_result.blocked
 
         r2 = await runner.run("npm", "pkg-b")
-        assert r2.blocked
+        assert r2.run_result.blocked
 
         # Both targets should have triggered separate LLM calls
         assert mock_client.ask.call_count == 2
@@ -562,8 +562,8 @@ class TestLlmDecisionCaching:
         runner = self._make_runner(mock_client, cache)
 
         r1 = await runner.run("npm", "test-pkg")
-        assert r1.blocked
+        assert r1.run_result.blocked
 
         r2 = await runner.run("npm", "test-pkg")
-        assert r2.blocked
+        assert r2.run_result.blocked
         assert mock_client.ask.call_count == 1

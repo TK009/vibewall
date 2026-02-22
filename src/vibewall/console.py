@@ -250,13 +250,13 @@ class ConsoleDisplay:
             self._prompting = False
             buffered = self._buffered_lines[:]
             self._buffered_lines.clear()
-        # Flush buffered lines before restarting live region
-        for line in buffered:
-            self._console.print(line)
-            self._lines_since_legend += 1
-            if self._lines_since_legend >= _LEGEND_INTERVAL:
-                self._print_legend()
-                self._lines_since_legend = 0
+            # Flush buffered lines before restarting live region
+            for line in buffered:
+                self._console.print(line)
+                self._lines_since_legend += 1
+                if self._lines_since_legend >= _LEGEND_INTERVAL:
+                    self._print_legend()
+                    self._lines_since_legend = 0
         if self._live is not None:
             self._live.start()
 

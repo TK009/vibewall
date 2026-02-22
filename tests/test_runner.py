@@ -54,17 +54,17 @@ class TestCheckRunner:
         a = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
         b = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("not allowlisted", allowlisted=False))
         runner = CheckRunner([a, b], runner_config, TTLCache())
-        result = await runner.run("npm", "lodash")
-        assert result.allowed
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_blocklist_fail_blocks(self, runner_config: VibewallConfig) -> None:
         a = StubCheck("npm_blocklist", "npm", result=CheckResult.fail("blocklisted"))
         b = StubCheck("npm_registry", "npm")
         runner = CheckRunner([a, b], runner_config, TTLCache())
-        result = await runner.run("npm", "evil-pkg")
-        assert result.blocked
-        assert "blocklisted" in result.reason
+        pipeline = await runner.run("npm", "evil-pkg")
+        assert pipeline.run_result.blocked
+        assert "blocklisted" in pipeline.run_result.reason
 
     @pytest.mark.asyncio
     async def test_allowlist_short_circuits(self, runner_config: VibewallConfig) -> None:
@@ -72,24 +72,24 @@ class TestCheckRunner:
         registry = StubCheck("npm_registry", "npm")
         existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"])
         runner = CheckRunner([allowlist, registry, existence], runner_config, TTLCache())
-        result = await runner.run("npm", "lodash")
-        assert result.allowed
-        assert "allowlisted" in result.reason
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.allowed
+        assert "allowlisted" in pipeline.run_result.reason
         assert not existence.called
 
     @pytest.mark.asyncio
     async def test_fail_with_warn_action_allows(self, runner_config: VibewallConfig) -> None:
         downloads = StubCheck("npm_downloads", "npm", result=CheckResult.fail("low downloads"))
         runner = CheckRunner([downloads], runner_config, TTLCache())
-        result = await runner.run("npm", "obscure-pkg")
-        assert result.allowed
+        pipeline = await runner.run("npm", "obscure-pkg")
+        assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_err_fails_open(self, runner_config: VibewallConfig) -> None:
         registry = StubCheck("npm_registry", "npm", result=CheckResult.err("timeout"))
         runner = CheckRunner([registry], runner_config, TTLCache())
-        result = await runner.run("npm", "some-pkg")
-        assert result.allowed
+        pipeline = await runner.run("npm", "some-pkg")
+        assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_caching(self, runner_config: VibewallConfig) -> None:
@@ -101,9 +101,9 @@ class TestCheckRunner:
         assert check.called
 
         check.called = False
-        result2 = await runner.run("npm", "pkg")
+        pipeline2 = await runner.run("npm", "pkg")
         assert not check.called
-        assert result2.allowed
+        assert pipeline2.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_dependency_data_passed(self, runner_config: VibewallConfig) -> None:
@@ -126,14 +126,14 @@ class TestCheckRunner:
 
         dep_check = DepCheck()
         runner = CheckRunner([registry, dep_check], runner_config, TTLCache())
-        result = await runner.run("npm", "test-pkg")
-        assert result.allowed
+        pipeline = await runner.run("npm", "test-pkg")
+        assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_no_checks_allows(self, runner_config: VibewallConfig) -> None:
         runner = CheckRunner([], runner_config, TTLCache())
-        result = await runner.run("npm", "anything")
-        assert result.allowed
+        pipeline = await runner.run("npm", "anything")
+        assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_scope_filtering(self, runner_config: VibewallConfig) -> None:
@@ -154,9 +154,9 @@ class TestCheckRunner:
         async def approve(name, target, result):
             return True
 
-        result = await runner.run("npm", "new-pkg", on_ask=approve)
-        assert result.allowed
-        assert result.results[0][1].status == CheckStatus.SUS
+        pipeline = await runner.run("npm", "new-pkg", on_ask=approve)
+        assert pipeline.run_result.allowed
+        assert pipeline.run_result.results[0][1].status == CheckStatus.SUS
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("action", ["ask-block", "ask-allow"])
@@ -168,8 +168,8 @@ class TestCheckRunner:
         async def deny(name, target, result):
             return False
 
-        result = await runner.run("npm", "new-pkg", on_ask=deny)
-        assert result.blocked
+        pipeline = await runner.run("npm", "new-pkg", on_ask=deny)
+        assert pipeline.run_result.blocked
 
     @pytest.mark.asyncio
     async def test_ask_block_no_callback_stays_fail(self, runner_config: VibewallConfig) -> None:
@@ -177,8 +177,8 @@ class TestCheckRunner:
         runner_config.validators["npm_age"] = ValidatorConfig(action="ask-block")
         runner = CheckRunner([check], runner_config, TTLCache())
 
-        result = await runner.run("npm", "new-pkg", on_ask=None)
-        assert result.blocked
+        pipeline = await runner.run("npm", "new-pkg", on_ask=None)
+        assert pipeline.run_result.blocked
 
     @pytest.mark.asyncio
     async def test_ask_allow_no_callback_allows(self, runner_config: VibewallConfig) -> None:
@@ -186,9 +186,9 @@ class TestCheckRunner:
         runner_config.validators["npm_age"] = ValidatorConfig(action="ask-allow")
         runner = CheckRunner([check], runner_config, TTLCache())
 
-        result = await runner.run("npm", "new-pkg", on_ask=None)
-        assert result.allowed
-        assert result.results[0][1].status == CheckStatus.SUS
+        pipeline = await runner.run("npm", "new-pkg", on_ask=None)
+        assert pipeline.run_result.allowed
+        assert pipeline.run_result.results[0][1].status == CheckStatus.SUS
 
     @pytest.mark.asyncio
     async def test_ask_block_callback_exception_stays_fail(self, runner_config: VibewallConfig) -> None:
@@ -199,8 +199,8 @@ class TestCheckRunner:
         async def explode(name, target, result):
             raise RuntimeError("boom")
 
-        result = await runner.run("npm", "new-pkg", on_ask=explode)
-        assert result.blocked
+        pipeline = await runner.run("npm", "new-pkg", on_ask=explode)
+        assert pipeline.run_result.blocked
 
     @pytest.mark.asyncio
     async def test_ask_allow_callback_exception_allows(self, runner_config: VibewallConfig) -> None:
@@ -211,9 +211,9 @@ class TestCheckRunner:
         async def explode(name, target, result):
             raise RuntimeError("boom")
 
-        result = await runner.run("npm", "new-pkg", on_ask=explode)
-        assert result.allowed
-        assert result.results[0][1].status == CheckStatus.SUS
+        pipeline = await runner.run("npm", "new-pkg", on_ask=explode)
+        assert pipeline.run_result.allowed
+        assert pipeline.run_result.results[0][1].status == CheckStatus.SUS
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("action", ["ask-block", "ask-allow"])
@@ -234,6 +234,6 @@ class TestCheckRunner:
         assert ask_count == 1
 
         # Second run should use cache — no prompt
-        result2 = await runner.run("npm", "new-pkg", on_ask=approve)
+        pipeline2 = await runner.run("npm", "new-pkg", on_ask=approve)
         assert ask_count == 1  # not called again
-        assert result2.allowed
+        assert pipeline2.run_result.allowed

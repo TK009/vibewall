@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from vibewall.config import VibewallConfig
-from vibewall.models import RunResult, CheckResult
+from vibewall.models import PipelineResult, RunResult, CheckResult
 from vibewall.proxy.addon import VibewallAddon
 from vibewall.validators.runner import CheckRunner
 
@@ -106,8 +106,8 @@ async def test_pypi_download_runs_advisory_checks() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
     runner.get_enabled_check_names = MagicMock(return_value=["pypi_advisories"])
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=True, reason="no advisories", results=[]
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(allowed=True, reason="no advisories", results=[]),
     ))
 
     addon = VibewallAddon(config, runner)
@@ -133,8 +133,8 @@ async def test_npm_metadata_excludes_advisories() -> None:
     runner.get_enabled_check_names = MagicMock(
         return_value=["npm_blocklist", "npm_registry", "npm_advisories"]
     )
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=True, reason="all checks passed", results=[]
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(allowed=True, reason="all checks passed", results=[]),
     ))
 
     addon = VibewallAddon(config, runner)
@@ -160,8 +160,8 @@ async def test_npm_tarball_runs_advisory_checks() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
     runner.get_enabled_check_names = MagicMock(return_value=["npm_advisories"])
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=True, reason="no advisories", results=[]
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(allowed=True, reason="no advisories", results=[]),
     ))
 
     addon = VibewallAddon(config, runner)
@@ -184,10 +184,12 @@ async def test_npm_tarball_runs_advisory_checks() -> None:
 async def test_npm_request_blocked() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=False,
-        reason="hallucinated package",
-        results=[("npm_existence", CheckResult.fail("hallucinated"))],
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(
+            allowed=False,
+            reason="hallucinated package",
+            results=[("npm_existence", CheckResult.fail("hallucinated"))],
+        ),
     ))
 
     addon = VibewallAddon(config, runner)
@@ -210,8 +212,8 @@ async def test_npm_request_blocked() -> None:
 async def test_npm_request_allowed() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=True, reason="all checks passed", results=[]
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(allowed=True, reason="all checks passed", results=[]),
     ))
 
     addon = VibewallAddon(config, runner)
@@ -230,10 +232,12 @@ async def test_npm_request_allowed() -> None:
 async def test_url_validation_for_non_npm() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
-    runner.run = AsyncMock(return_value=RunResult(
-        allowed=False,
-        reason="DNS failed",
-        results=[("url_dns", CheckResult.fail("DNS failed"))],
+    runner.run = AsyncMock(return_value=PipelineResult(
+        run_result=RunResult(
+            allowed=False,
+            reason="DNS failed",
+            results=[("url_dns", CheckResult.fail("DNS failed"))],
+        ),
     ))
 
     addon = VibewallAddon(config, runner)

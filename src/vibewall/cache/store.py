@@ -9,6 +9,7 @@ from typing import Any
 class _Entry:
     value: Any
     expires_at: float
+    ttl: float = 0.0
 
 
 class TTLCache:
@@ -27,13 +28,30 @@ class TTLCache:
             return None
         return entry.value
 
+    def get_with_freshness(self, key: str) -> tuple[Any, bool] | None:
+        """Return (value, near_expiry) or None if missing/expired.
+
+        ``near_expiry`` is True when the remaining TTL is less than 20%
+        of the original TTL.
+        """
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        now = time.monotonic()
+        if now > entry.expires_at:
+            del self._data[key]
+            return None
+        remaining = entry.expires_at - now
+        near_expiry = entry.ttl > 0 and remaining < entry.ttl * 0.2
+        return (entry.value, near_expiry)
+
     def set(self, key: str, value: Any, ttl: int) -> None:
         if len(self._data) >= self._max_entries and key not in self._data:
             self.cleanup()
             # If still at capacity after cleanup, evict oldest entries
             if len(self._data) >= self._max_entries:
                 self._evict_oldest(len(self._data) - self._max_entries + 1)
-        self._data[key] = _Entry(value=value, expires_at=time.monotonic() + ttl)
+        self._data[key] = _Entry(value=value, expires_at=time.monotonic() + ttl, ttl=float(ttl))
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)

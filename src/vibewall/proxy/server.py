@@ -154,4 +154,5 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
         await master.run()
     finally:
         display.print_stats()
+        await runner.shutdown()
         await session.close()

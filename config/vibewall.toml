@@ -93,6 +93,7 @@ cache_ttl = 3600
 # base_url = ""                             # override for OpenAI-compatible endpoints
 # max_tokens = 256
 # temperature = 0.0
+# max_concurrent = 5                        # max concurrent LLM API calls
 # cache_ttl = 120                           # seconds; 0 = disable LLM decision caching
 
 [notifications]

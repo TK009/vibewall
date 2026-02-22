@@ -6,6 +6,7 @@ import aiohttp
 
 from vibewall.models import CheckContext, CheckResult
 from vibewall.validators.base import BaseCheck
+from vibewall.models import CheckStatus
 from vibewall.validators.checks._osv import (
     ACTION_ORDER,
     OSV_API_URL,
@@ -13,6 +14,7 @@ from vibewall.validators.checks._osv import (
     affects_version,
     cvss_to_severity,
     extract_severity,
+    has_fix,
 )
 
 
@@ -39,6 +41,17 @@ class PypiAdvisoriesCheck(BaseCheck):
             "HIGH": severity_high,
             "CRITICAL": severity_critical,
         }
+
+    def get_result_ttl(self, result: CheckResult, default_ttl: int) -> int:
+        if result.status == CheckStatus.ERR:
+            return default_ttl
+        if result.status == CheckStatus.OK:
+            return max(300, default_ttl // 4)
+        # FAIL: if all advisories have a fix, the info is stable
+        advisories = result.data.get("advisories", [])
+        if advisories and any(not a.get("has_fix", False) for a in advisories):
+            return default_ttl  # fix may appear, re-check sooner
+        return default_ttl * 2  # all fixed or no advisories detail — stable
 
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         version = context.version
@@ -89,6 +102,7 @@ class PypiAdvisoriesCheck(BaseCheck):
                 "action": action,
                 "summary": summary,
                 "details": details,
+                "has_fix": has_fix(vuln),
             })
 
             # Track the most restrictive action

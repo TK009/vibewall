@@ -366,7 +366,7 @@ class TestAdvisoryRunnerIntegration:
         runner = CheckRunner([check], config, TTLCache(max_entries=100))
 
         on_ask = AsyncMock(return_value=True)  # user approves
-        result = await runner.run(
+        pipeline = await runner.run(
             "npm", "fast-xml-parser@5.3.4",
             on_ask=on_ask,
             version="5.3.4",
@@ -375,8 +375,8 @@ class TestAdvisoryRunnerIntegration:
 
         on_ask.assert_called_once()
         # Approved ask → SUS (warning), request allowed through
-        assert result.allowed is True
-        check_results = dict(result.results)
+        assert pipeline.run_result.allowed is True
+        check_results = dict(pipeline.run_result.results)
         assert check_results["npm_advisories"].status == CheckStatus.SUS
 
     async def test_ask_block_denied_blocks(self) -> None:
@@ -401,7 +401,7 @@ class TestAdvisoryRunnerIntegration:
         runner = CheckRunner([check], config, TTLCache(max_entries=100))
 
         on_ask = AsyncMock(return_value=False)  # user denies
-        result = await runner.run(
+        pipeline = await runner.run(
             "npm", "fast-xml-parser@5.3.4",
             on_ask=on_ask,
             version="5.3.4",
@@ -409,8 +409,8 @@ class TestAdvisoryRunnerIntegration:
         )
 
         on_ask.assert_called_once()
-        assert result.allowed is False
-        check_results = dict(result.results)
+        assert pipeline.run_result.allowed is False
+        check_results = dict(pipeline.run_result.results)
         assert check_results["npm_advisories"].status == CheckStatus.FAIL
 
     async def test_ask_block_no_callback_blocks(self) -> None:
@@ -435,10 +435,10 @@ class TestAdvisoryRunnerIntegration:
         runner = CheckRunner([check], config, TTLCache(max_entries=100))
 
         # No on_ask callback — simulates headless / no TTY
-        result = await runner.run(
+        pipeline = await runner.run(
             "npm", "fast-xml-parser@5.3.4",
             version="5.3.4",
             check_names={"npm_advisories"},
         )
 
-        assert result.allowed is False
+        assert pipeline.run_result.allowed is False

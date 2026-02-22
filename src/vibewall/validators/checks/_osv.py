@@ -47,6 +47,19 @@ def extract_severity(vuln: dict) -> str:
     return "HIGH"
 
 
+def has_fix(vuln: dict) -> bool:
+    """Check if the vulnerability has a known fix version.
+
+    Inspects ``affected[].ranges[].events`` for a ``"fixed"`` key.
+    """
+    for affected in vuln.get("affected", []):
+        for rng in affected.get("ranges", []):
+            for event in rng.get("events", []):
+                if "fixed" in event:
+                    return True
+    return False
+
+
 def affects_version(vuln: dict, version: str) -> bool:
     """Check if a vulnerability affects the given version.
 

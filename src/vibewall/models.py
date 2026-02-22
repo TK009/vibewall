@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -68,3 +69,11 @@ class RunResult:
     @property
     def blocked(self) -> bool:
         return not self.allowed
+
+
+@dataclass
+class PipelineResult:
+    """Wraps RunResult with an optional event for background checks."""
+
+    run_result: RunResult
+    background: asyncio.Event | None = field(default=None, repr=False)

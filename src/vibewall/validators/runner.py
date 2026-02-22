@@ -8,10 +8,10 @@ import structlog
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
-from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
+from vibewall.models import CheckContext, CheckResult, CheckStatus, PipelineResult, RunResult
 from vibewall.llm.history import HistoryEntry
 from vibewall.validators.action import (
-    _resolve_llm_per_check,
+    resolve_llm_per_check,
     batch_ask_llm,
     is_ask_llm_action,
     maybe_ask,
@@ -48,6 +48,8 @@ class CheckRunner:
         self._cache = cache
         self._llm_client = llm_client
         self._history = history
+        self._background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+        self._refreshing: set[str] = set()
 
     def get_enabled_check_names(self, scope: str) -> list[str]:
         """Return ordered list of enabled check names for a scope."""
@@ -65,13 +67,15 @@ class CheckRunner:
         *,
         version: str | None = None,
         check_names: set[str] | None = None,
-    ) -> RunResult:
+    ) -> PipelineResult:
         enabled = self._get_enabled_checks(scope)
         if check_names is not None:
             enabled = [c for c in enabled if c.name in check_names]
         if not enabled:
-            return RunResult(
-                allowed=True, reason="no checks configured", results=[]
+            return PipelineResult(
+                run_result=RunResult(
+                    allowed=True, reason="no checks configured", results=[]
+                ),
             )
 
         timeout = self._config.pipeline_timeout
@@ -87,8 +91,10 @@ class CheckRunner:
                 "pipeline_timeout", scope=scope, target=target,
                 timeout=timeout,
             )
-            return RunResult(
-                allowed=True, reason="pipeline timed out, failing open", results=[]
+            return PipelineResult(
+                run_result=RunResult(
+                    allowed=True, reason="pipeline timed out, failing open", results=[]
+                ),
             )
 
     async def _run_checks(
@@ -100,34 +106,56 @@ class CheckRunner:
         on_ask: OnAsk = None,
         *,
         version: str | None = None,
-    ) -> RunResult:
+    ) -> PipelineResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
+        bg_eligible = self._get_background_eligible(enabled)
         # context keeps raw results (dependencies need original FAIL status),
         # all_results keeps display results (FAIL downgraded to SUS for warns/asks).
         context = CheckContext(version=version)
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
+        bg_event: asyncio.Event | None = None
+        bg_pending: list[asyncio.Task] = []  # type: ignore[type-arg]
 
         for layer in layers:
             # Check cache first
             to_run: list[BaseCheck] = []
             for check in layer:
-                cached = self._cache.get(f"{check.name}:{target}")
-                if cached is not None:
-                    raw, display = cached
+                cache_key = f"{check.name}:{target}"
+                hit = self._cache.get_with_freshness(cache_key)
+                if hit is not None:
+                    (raw, display), near_expiry = hit
+                    # Background-eligible cached results are still included
+                    # since they don't need re-running.
                     all_results.append((check.name, display))
                     context.add(check.name, raw)
                     completed_names.add(check.name)
                     self._notify(on_check_done, check.name, display)
+                    if near_expiry:
+                        self._schedule_refresh(check, target, context)
                 else:
                     to_run.append(check)
 
-            if to_run:
-                results = await asyncio.gather(
-                    *[check.run(target, context) for check in to_run]
+            # Split into sync and background checks
+            to_run_sync = [c for c in to_run if c.name not in bg_eligible]
+            to_run_bg = [c for c in to_run if c.name in bg_eligible]
+
+            # Launch background warn checks
+            for check in to_run_bg:
+                if bg_event is None:
+                    bg_event = asyncio.Event()
+                task = self._spawn_background_check(
+                    check, target, context, on_check_done, bg_event, bg_pending,
                 )
-                for check, result in zip(to_run, results):
+                bg_pending.append(task)
+                completed_names.add(check.name)
+
+            if to_run_sync:
+                results = await asyncio.gather(
+                    *[check.run(target, context) for check in to_run_sync]
+                )
+                for check, result in zip(to_run_sync, results):
                     display = await maybe_ask(check.name, target, result, self._config, on_ask)
                     # Defer LLM decisions to post-loop batch; only
                     # downgrade non-LLM checks here.
@@ -136,31 +164,35 @@ class CheckRunner:
                     all_results.append((check.name, display))
                     context.add(check.name, result)
                     completed_names.add(check.name)
-                    ttl = self._get_ttl(check.name)
+                    ttl = self._get_result_ttl(check, result)
                     # Cache raw + pre-LLM display; LLM decisions are
                     # applied fresh each request via _apply_llm_decisions.
                     self._cache.set(f"{check.name}:{target}", (result, display), ttl)
                     self._notify(on_check_done, check.name, display)
 
-            # Short-circuit evaluation after each layer
+            # Short-circuit evaluation after each layer (sync checks only)
             for check in layer:
+                if check.name in bg_eligible:
+                    continue
                 result = context.get(check.name)
                 if result is None:
                     continue
                 if self._should_short_circuit(check.name, result):
-                    # Signal skipped checks
+                    # Signal skipped checks (exclude bg checks — they finish on their own)
                     for name in all_enabled_names - completed_names:
                         self._notify(on_check_done, name, None)
                     run_result = self._finalize(all_results, short_circuit=(check.name, result))
                     self._record_history(scope, target, all_results, run_result)
-                    return run_result
+                    return PipelineResult(run_result=run_result, background=bg_event)
 
-        # Batch LLM adjudication after all checks complete
-        all_results = await self._apply_llm_decisions(scope, target, all_results)
+        # Batch LLM adjudication after all sync checks complete
+        all_results = await self._apply_llm_decisions(
+            scope, target, all_results, on_check_done,
+        )
 
         run_result = self._finalize(all_results)
         self._record_history(scope, target, all_results, run_result)
-        return run_result
+        return PipelineResult(run_result=run_result, background=bg_event)
 
     def _is_llm_action(self, check_name: str, result: CheckResult) -> bool:
         """Check if this result's action is an ask-llm-* variant."""
@@ -181,6 +213,7 @@ class CheckRunner:
         scope: str,
         target: str,
         all_results: list[tuple[str, CheckResult]],
+        on_check_done: OnCheckDone = None,
     ) -> list[tuple[str, CheckResult]]:
         """Collect ask-llm-* FAILs, make one LLM call, update results."""
         pending_indices: list[int] = []
@@ -207,7 +240,7 @@ class CheckRunner:
                 "llm_cache_hit", target=target, decision=cached_decision,
             )
             resolved = [
-                (name, _resolve_llm_per_check(name, result, cached_decision, self._config))
+                (name, resolve_llm_per_check(name, result, cached_decision, self._config))
                 for name, result in pending_items
             ]
         else:
@@ -223,6 +256,7 @@ class CheckRunner:
         for idx, (name, new_result) in zip(pending_indices, resolved):
             new_result = maybe_downgrade(name, new_result, self._config)
             updated[idx] = (name, new_result)
+            self._notify(on_check_done, name, new_result)
         return updated
 
     def _record_history(
@@ -313,11 +347,102 @@ class CheckRunner:
 
         return layers
 
-    def _get_ttl(self, check_name: str) -> int:
+    def _get_base_ttl(self, check_name: str) -> int:
         vc = self._config.get_validator(check_name)
         if vc and vc.cache_ttl is not None:
             return vc.cache_ttl
         return self._config.cache.default_ttl
+
+    def _get_result_ttl(self, check: BaseCheck, result: CheckResult) -> int:
+        base_ttl = self._get_base_ttl(check.name)
+        return check.get_result_ttl(result, base_ttl)
+
+    def _get_background_eligible(self, enabled: list[BaseCheck]) -> set[str]:
+        """Identify checks eligible for background execution.
+
+        A check is background-eligible when:
+        (a) no other enabled check depends on it, AND
+        (b) its action is ``"warn"`` (not block, ask-*, or ask-llm-*).
+        """
+        enabled_names = {c.name for c in enabled}
+        depended_on: set[str] = set()
+        for c in enabled:
+            for dep in c.depends_on:
+                if dep in enabled_names:
+                    depended_on.add(dep)
+
+        eligible: set[str] = set()
+        for c in enabled:
+            if c.name in depended_on:
+                continue
+            vc = self._config.get_validator(c.name)
+            action = vc.action if vc else c.default_action
+            if action == "warn":
+                eligible.add(c.name)
+        return eligible
+
+    def _spawn_background_check(
+        self,
+        check: BaseCheck,
+        target: str,
+        context: CheckContext,
+        on_check_done: OnCheckDone,
+        bg_event: asyncio.Event,
+        bg_pending: list[asyncio.Task],  # type: ignore[type-arg]
+    ) -> asyncio.Task:  # type: ignore[type-arg]
+        """Run a single warn check in the background."""
+        async def _do_bg() -> None:
+            try:
+                result = await check.run(target, context)
+                display = maybe_downgrade(check.name, result, self._config)
+                ttl = self._get_result_ttl(check, result)
+                self._cache.set(f"{check.name}:{target}", (result, display), ttl)
+                self._notify(on_check_done, check.name, display)
+            except Exception:
+                logger.exception("background_check_error", check=check.name, target=target)
+                self._notify(on_check_done, check.name, None)
+            finally:
+                # Check if all background tasks for this request are done
+                if all(t.done() for t in bg_pending):
+                    bg_event.set()
+
+        task = asyncio.create_task(_do_bg())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    def _schedule_refresh(
+        self, check: BaseCheck, target: str, context: CheckContext,
+    ) -> None:
+        """Spawn a background task to refresh a near-expiry cache entry."""
+        cache_key = f"{check.name}:{target}"
+        if cache_key in self._refreshing:
+            return
+        self._refreshing.add(cache_key)
+
+        async def _do_refresh() -> None:
+            try:
+                result = await check.run(target, context)
+                display = maybe_downgrade(check.name, result, self._config)
+                ttl = self._get_result_ttl(check, result)
+                self._cache.set(cache_key, (result, display), ttl)
+            except Exception:
+                logger.exception("background_refresh_error", check=check.name, target=target)
+            finally:
+                self._refreshing.discard(cache_key)
+
+        task = asyncio.create_task(_do_refresh())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def shutdown(self) -> None:
+        """Cancel all background tasks and await them."""
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        self._background_tasks.clear()
+        self._refreshing.clear()
 
     def _should_short_circuit(self, check_name: str, result: CheckResult) -> bool:
         # Blocklist FAIL → stop immediately

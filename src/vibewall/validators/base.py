@@ -20,6 +20,10 @@ class BaseCheck(ABC):
                 f"{cls.__name__} must define a class-level 'abbrev' attribute"
             )
 
+    def get_result_ttl(self, result: CheckResult, default_ttl: int) -> int:
+        """Override for result-aware TTL. Default: return default_ttl."""
+        return default_ttl
+
     @abstractmethod
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         """Run the check. context holds results/data from dependencies."""

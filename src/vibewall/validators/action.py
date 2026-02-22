@@ -93,7 +93,7 @@ def _parse_llm_decision(response: str) -> str:
     return ""
 
 
-def _resolve_llm_per_check(
+def resolve_llm_per_check(
     name: str,
     result: CheckResult,
     decision: str,
@@ -141,7 +141,7 @@ async def batch_ask_llm(
     def _fallbacks() -> tuple[str, list[tuple[str, CheckResult]]]:
         resolved = []
         for name, result in pending:
-            resolved.append((name, _resolve_llm_per_check(name, result, "", config)))
+            resolved.append((name, resolve_llm_per_check(name, result, "", config)))
         return ("", resolved)
 
     if llm_client is None:
@@ -160,7 +160,7 @@ async def batch_ask_llm(
             decision=decision,
         )
         return (decision, [
-            (name, _resolve_llm_per_check(name, result, decision, config))
+            (name, resolve_llm_per_check(name, result, decision, config))
             for name, result in pending
         ])
     except Exception:

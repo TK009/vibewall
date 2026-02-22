@@ -9,7 +9,7 @@ import structlog
 from mitmproxy import http
 
 from vibewall.config import VibewallConfig
-from vibewall.models import RunResult
+from vibewall.models import PipelineResult, RunResult
 from vibewall.notifications import Notifier
 from vibewall.validators.runner import CheckRunner
 
@@ -48,6 +48,7 @@ class VibewallAddon:
         self._display = display
         self._notifier = notifier
         self._flow_to_req: dict[str, str] = {}  # flow.id → req_id
+        self._flow_to_bg: dict[str, asyncio.Event] = {}  # flow.id → background event
 
     async def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
@@ -115,7 +116,11 @@ class VibewallAddon:
             return
         if flow.response is not None:
             self._display.update_status_code(req_id, flow.response.status_code)
-        self._display.finish_request(req_id)
+        bg_event = self._flow_to_bg.pop(flow.id, None)
+        if bg_event is not None and not bg_event.is_set():
+            asyncio.create_task(self._deferred_finish(req_id, bg_event))
+        else:
+            self._display.finish_request(req_id)
 
     def error(self, flow: http.HTTPFlow) -> None:
         if self._display is None:
@@ -123,7 +128,11 @@ class VibewallAddon:
         req_id = self._flow_to_req.pop(flow.id, None)
         if req_id is None:
             return
-        self._display.finish_request(req_id)
+        bg_event = self._flow_to_bg.pop(flow.id, None)
+        if bg_event is not None and not bg_event.is_set():
+            asyncio.create_task(self._deferred_finish(req_id, bg_event))
+        else:
+            self._display.finish_request(req_id)
 
     async def _run_with_display(
         self,
@@ -143,13 +152,14 @@ class VibewallAddon:
             effective_names = all_names - check_names_exclude
 
         if self._display is None:
-            return await self._runner.run(
+            pipeline = await self._runner.run(
                 scope, target, version=version, check_names=effective_names,
             )
+            return pipeline.run_result
 
         req_id = self._display.begin_request(scope, target)
         self._flow_to_req[flow.id] = req_id
-        result = await self._runner.run(
+        pipeline = await self._runner.run(
             scope,
             target,
             on_check_done=lambda name, r: self._display.update_check(req_id, name, r),
@@ -157,7 +167,12 @@ class VibewallAddon:
             version=version,
             check_names=effective_names,
         )
+        result = pipeline.run_result
         self._display.set_run_result(req_id, result)
+
+        # Track background event for deferred finish_request
+        if pipeline.background is not None:
+            self._flow_to_bg[flow.id] = pipeline.background
 
         # Fire-and-forget desktop notifications (gated per type)
         if self._notifier is not None:
@@ -174,10 +189,24 @@ class VibewallAddon:
             # Blocked requests won't get a response() hook from upstream,
             # so finalize immediately with the 403 we're about to set.
             self._display.update_status_code(req_id, 403)
-            self._display.finish_request(req_id)
+            bg_event = self._flow_to_bg.pop(flow.id, None)
+            if bg_event is not None:
+                # Background checks still running — defer finish_request
+                asyncio.create_task(self._deferred_finish(req_id, bg_event))
+            else:
+                self._display.finish_request(req_id)
             del self._flow_to_req[flow.id]
 
         return result
+
+    async def _deferred_finish(self, req_id: str, bg_event: asyncio.Event) -> None:
+        """Wait for background checks to complete, then finalize the display line."""
+        try:
+            await bg_event.wait()
+        except Exception:
+            pass
+        if self._display is not None:
+            self._display.finish_request(req_id)
 
     def _handle_result(
         self, flow: http.HTTPFlow, result: RunResult, check_type: str, target: str
