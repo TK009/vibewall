@@ -116,9 +116,18 @@ class CheckRunner:
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
         bg_event: asyncio.Event | None = None
-        bg_pending: list[asyncio.Task] = []  # type: ignore[type-arg]
+        bg_remaining: list[int] = [0]  # mutable counter for background tasks
+        # Set when an allowlist short-circuit fires; remaining layers are
+        # filtered to only run checks with ignore_allowlist=True.
+        allowlist_sc: tuple[str, CheckResult] | None = None
 
         for layer in layers:
+            # When in allowlist mode, filter layer to ignore_allowlist checks only
+            if allowlist_sc is not None:
+                layer = [c for c in layer if self._has_ignore_allowlist(c.name)]
+                if not layer:
+                    continue
+
             # Check cache first
             to_run: list[BaseCheck] = []
             for check in layer:
@@ -145,10 +154,10 @@ class CheckRunner:
             for check in to_run_bg:
                 if bg_event is None:
                     bg_event = asyncio.Event()
-                task = self._spawn_background_check(
-                    check, target, context, on_check_done, bg_event, bg_pending,
+                bg_remaining[0] += 1
+                self._spawn_background_check(
+                    check, target, context, on_check_done, bg_event, bg_remaining,
                 )
-                bg_pending.append(task)
                 completed_names.add(check.name)
 
             if to_run_sync:
@@ -171,26 +180,36 @@ class CheckRunner:
                     self._notify(on_check_done, check.name, display)
 
             # Short-circuit evaluation after each layer (sync checks only)
-            for check in layer:
-                if check.name in bg_eligible:
-                    continue
-                result = context.get(check.name)
-                if result is None:
-                    continue
-                if self._should_short_circuit(check.name, result):
-                    # Signal skipped checks (exclude bg checks — they finish on their own)
-                    for name in all_enabled_names - completed_names:
-                        self._notify(on_check_done, name, None)
-                    run_result = self._finalize(all_results, short_circuit=(check.name, result))
-                    self._record_history(scope, target, all_results, run_result)
-                    return PipelineResult(run_result=run_result, background=bg_event)
+            if allowlist_sc is None:
+                for check in layer:
+                    if check.name in bg_eligible:
+                        continue
+                    result = context.get(check.name)
+                    if result is None:
+                        continue
+                    if self._should_short_circuit(check.name, result):
+                        if check.name in _ALLOWLIST_CHECKS:
+                            # Allowlist: continue but only run ignore_allowlist checks
+                            allowlist_sc = (check.name, result)
+                            # Signal skipped checks that won't run
+                            for name in all_enabled_names - completed_names:
+                                if not self._has_ignore_allowlist(name):
+                                    self._notify(on_check_done, name, None)
+                            break
+                        else:
+                            # Blocklist: immediate return (unchanged)
+                            for name in all_enabled_names - completed_names:
+                                self._notify(on_check_done, name, None)
+                            run_result = self._finalize(all_results, short_circuit=(check.name, result))
+                            self._record_history(scope, target, all_results, run_result)
+                            return PipelineResult(run_result=run_result, background=bg_event)
 
         # Batch LLM adjudication after all sync checks complete
         all_results = await self._apply_llm_decisions(
             scope, target, all_results, on_check_done,
         )
 
-        run_result = self._finalize(all_results)
+        run_result = self._finalize(all_results, short_circuit=allowlist_sc)
         self._record_history(scope, target, all_results, run_result)
         return PipelineResult(run_result=run_result, background=bg_event)
 
@@ -388,7 +407,7 @@ class CheckRunner:
         context: CheckContext,
         on_check_done: OnCheckDone,
         bg_event: asyncio.Event,
-        bg_pending: list[asyncio.Task],  # type: ignore[type-arg]
+        bg_remaining: list[int],
     ) -> asyncio.Task:  # type: ignore[type-arg]
         """Run a single warn check in the background."""
         async def _do_bg() -> None:
@@ -402,8 +421,8 @@ class CheckRunner:
                 logger.exception("background_check_error", check=check.name, target=target)
                 self._notify(on_check_done, check.name, None)
             finally:
-                # Check if all background tasks for this request are done
-                if all(t.done() for t in bg_pending):
+                bg_remaining[0] -= 1
+                if bg_remaining[0] <= 0:
                     bg_event.set()
 
         task = asyncio.create_task(_do_bg())
@@ -444,6 +463,13 @@ class CheckRunner:
         self._background_tasks.clear()
         self._refreshing.clear()
 
+    def _has_ignore_allowlist(self, check_name: str) -> bool:
+        """Return True if the check's config has ignore_allowlist enabled."""
+        vc = self._config.get_validator(check_name)
+        if vc is not None:
+            return vc.ignore_allowlist
+        return False
+
     def _should_short_circuit(self, check_name: str, result: CheckResult) -> bool:
         # Blocklist FAIL → stop immediately
         if check_name in _BLOCKLIST_CHECKS and result.status == CheckStatus.FAIL:
@@ -468,6 +494,18 @@ class CheckRunner:
                     allowed=False, reason=sc_result.reason, results=results
                 )
             if sc_name in _ALLOWLIST_CHECKS:
+                # Check if any ignore_allowlist check returned FAIL,
+                # which overrides the allowlist decision
+                blocking_reasons = [
+                    r.reason for _, r in results if r.status == CheckStatus.FAIL
+                ]
+                if blocking_reasons:
+                    warn_reasons = [r.reason for _, r in results if r.status == CheckStatus.SUS]
+                    error_reasons = [r.reason for _, r in results if r.status == CheckStatus.ERR]
+                    return RunResult(
+                        allowed=False, reason=blocking_reasons[0],
+                        results=results, warnings=warn_reasons, errors=error_reasons,
+                    )
                 return RunResult(
                     allowed=True, reason=sc_result.reason, results=results
                 )

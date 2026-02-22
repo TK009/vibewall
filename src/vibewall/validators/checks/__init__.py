@@ -61,6 +61,8 @@ for _cls in ALL_CHECKS:
     _entry: dict[str, Any] = {"action": _cls.default_action}
     if _cls.default_cache_ttl is not None:
         _entry["cache_ttl"] = _cls.default_cache_ttl
+    if _cls.default_ignore_allowlist:
+        _entry["ignore_allowlist"] = True
     VALIDATOR_DEFAULTS[_cls.name] = _entry
 
 __all__ = ["ALL_CHECKS", "SCOPE_ORDER", "CHECK_ABBREVS", "VALIDATOR_DEFAULTS"]

@@ -12,6 +12,7 @@ class BaseCheck(ABC):
     scope: str  # "npm" or "url"
     default_action: str = "block"
     default_cache_ttl: int | None = None  # None = use global default
+    default_ignore_allowlist: bool = False
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)

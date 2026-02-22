@@ -31,6 +31,7 @@ cache_ttl = 86400
 
 [validators.npm_advisories]
 action = "block"
+ignore_allowlist = true
 severity_low = "allow"
 severity_medium = "warn"
 severity_high = "warn"
@@ -80,6 +81,7 @@ cache_ttl = 86400
 
 [validators.pypi_advisories]
 action = "block"
+ignore_allowlist = true
 severity_low = "allow"
 severity_medium = "warn"
 severity_high = "warn"

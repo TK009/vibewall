@@ -30,6 +30,7 @@ def _validate_action(action: str) -> str:
 class ValidatorConfig:
     action: str = "block"
     cache_ttl: int | None = None  # None = use default from [cache]
+    ignore_allowlist: bool = False
     params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -154,17 +155,22 @@ class VibewallConfig:
                 section.get("action", defaults.get("action", "block"))
             )
             cache_ttl = section.get("cache_ttl", defaults.get("cache_ttl"))
+            ignore_allowlist = section.get(
+                "ignore_allowlist", defaults.get("ignore_allowlist", False)
+            )
 
-            # Everything except action and cache_ttl goes into params
+            # Everything except action, cache_ttl, ignore_allowlist goes into params
+            _meta_keys = {"action", "cache_ttl", "ignore_allowlist"}
             params = dict(defaults)
-            params.pop("action", None)
-            params.pop("cache_ttl", None)
+            for k in _meta_keys:
+                params.pop(k, None)
             params.update(
-                {k: v for k, v in section.items() if k not in ("action", "cache_ttl")}
+                {k: v for k, v in section.items() if k not in _meta_keys}
             )
 
             cfg.validators[name] = ValidatorConfig(
-                action=action, cache_ttl=cache_ttl, params=params
+                action=action, cache_ttl=cache_ttl,
+                ignore_allowlist=ignore_allowlist, params=params,
             )
 
         # If no validators section at all, enable all with defaults
@@ -176,12 +182,15 @@ class VibewallConfig:
 
 def _default_validators() -> dict[str, ValidatorConfig]:
     result = {}
+    _meta_keys = {"action", "cache_ttl", "ignore_allowlist"}
     for name, defaults in VALIDATOR_DEFAULTS.items():
         action = defaults.get("action", "block")
         cache_ttl = defaults.get("cache_ttl")
-        params = {k: v for k, v in defaults.items() if k not in ("action", "cache_ttl")}
+        ignore_allowlist = defaults.get("ignore_allowlist", False)
+        params = {k: v for k, v in defaults.items() if k not in _meta_keys}
         result[name] = ValidatorConfig(
-            action=action, cache_ttl=cache_ttl, params=params
+            action=action, cache_ttl=cache_ttl,
+            ignore_allowlist=ignore_allowlist, params=params,
         )
     return result
 

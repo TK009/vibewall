@@ -237,3 +237,80 @@ class TestCheckRunner:
         pipeline2 = await runner.run("npm", "new-pkg", on_ask=approve)
         assert ask_count == 1  # not called again
         assert pipeline2.run_result.allowed
+
+
+class TestIgnoreAllowlist:
+    @pytest.mark.asyncio
+    async def test_allowlisted_still_runs_ignore_allowlist_checks(self) -> None:
+        """Checks with ignore_allowlist=True run even when target is allowlisted."""
+        config = VibewallConfig()
+        config.validators = {
+            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_registry": ValidatorConfig(action="warn"),
+            "npm_advisories": ValidatorConfig(action="block", ignore_allowlist=True),
+            "npm_downloads": ValidatorConfig(action="warn"),
+        }
+        # allowlist + registry in layer 0; advisories + downloads in layer 1 (depend on registry)
+        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.ok("no advisories"))
+        downloads = StubCheck("npm_downloads", "npm", depends_on=["npm_registry"], result=CheckResult.ok("ok"))
+        runner = CheckRunner([allowlist, registry, advisories, downloads], config, TTLCache())
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.allowed
+        assert advisories.called
+        assert not downloads.called  # no ignore_allowlist, should be skipped
+
+    @pytest.mark.asyncio
+    async def test_allowlisted_skips_checks_without_ignore_allowlist(self) -> None:
+        """Checks without ignore_allowlist are skipped when target is allowlisted."""
+        config = VibewallConfig()
+        config.validators = {
+            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_registry": ValidatorConfig(action="warn"),
+            "npm_existence": ValidatorConfig(action="block"),
+            "npm_age": ValidatorConfig(action="block"),
+        }
+        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
+        existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"], result=CheckResult.ok("exists"))
+        age = StubCheck("npm_age", "npm", depends_on=["npm_registry"], result=CheckResult.ok("old enough"))
+        runner = CheckRunner([allowlist, registry, existence, age], config, TTLCache())
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.allowed
+        assert "allowlisted" in pipeline.run_result.reason
+        assert not existence.called
+        assert not age.called
+
+    @pytest.mark.asyncio
+    async def test_ignore_allowlist_fail_blocks_allowlisted_target(self) -> None:
+        """A FAIL from an ignore_allowlist check overrides the allowlist decision."""
+        config = VibewallConfig()
+        config.validators = {
+            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_registry": ValidatorConfig(action="warn"),
+            "npm_advisories": ValidatorConfig(action="block", ignore_allowlist=True),
+        }
+        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("critical vulnerability found"))
+        runner = CheckRunner([allowlist, registry, advisories], config, TTLCache())
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.blocked
+        assert "vulnerability" in pipeline.run_result.reason
+
+    @pytest.mark.asyncio
+    async def test_ignore_allowlist_warn_action_allows(self) -> None:
+        """A FAIL from an ignore_allowlist check with warn action is downgraded, target still allowed."""
+        config = VibewallConfig()
+        config.validators = {
+            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_registry": ValidatorConfig(action="warn"),
+            "npm_advisories": ValidatorConfig(action="warn", ignore_allowlist=True),
+        }
+        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("medium vulnerability"))
+        runner = CheckRunner([allowlist, registry, advisories], config, TTLCache())
+        pipeline = await runner.run("npm", "lodash")
+        assert pipeline.run_result.allowed

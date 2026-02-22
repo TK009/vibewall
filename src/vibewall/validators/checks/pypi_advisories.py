@@ -24,6 +24,7 @@ class PypiAdvisoriesCheck(BaseCheck):
     depends_on: list[str] = []
     scope = "pypi"
     default_cache_ttl = 3600
+    default_ignore_allowlist = True
 
     def __init__(
         self,

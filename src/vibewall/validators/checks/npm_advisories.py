@@ -24,6 +24,7 @@ class NpmAdvisoriesCheck(BaseCheck):
     depends_on: list[str] = []
     scope = "npm"
     default_cache_ttl = 3600
+    default_ignore_allowlist = True
 
     def __init__(
         self,
