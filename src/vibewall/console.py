@@ -92,6 +92,10 @@ class ConsoleDisplay:
         # Legend repeat counter
         self._lines_since_legend: int = 0
 
+        # When True, finished lines are buffered instead of printed
+        self._prompting = False
+        self._buffered_lines: list[Text] = []
+
         # Build ordered columns per scope (only enabled ones)
         self._columns: dict[str, list[str]] = {}
         for scope, order in scope_order.items():
@@ -184,12 +188,15 @@ class ConsoleDisplay:
 
             line = self._build_completed_line(req, run_result, ran_checks, elapsed_ms)
 
-            self._console.print(line)
-            self._lines_since_legend += 1
+            if self._prompting:
+                self._buffered_lines.append(line)
+            else:
+                self._console.print(line)
+                self._lines_since_legend += 1
 
-            if self._lines_since_legend >= _LEGEND_INTERVAL:
-                self._print_legend()
-                self._lines_since_legend = 0
+                if self._lines_since_legend >= _LEGEND_INTERVAL:
+                    self._print_legend()
+                    self._lines_since_legend = 0
 
             self._refresh_live()
 
@@ -232,11 +239,24 @@ class ConsoleDisplay:
 
     def pause_live(self) -> None:
         """Stop the Live display (e.g. before an interactive prompt)."""
+        with self._lock:
+            self._prompting = True
         if self._live is not None:
             self._live.stop()
 
     def resume_live(self) -> None:
         """Restart the Live display (e.g. after an interactive prompt)."""
+        with self._lock:
+            self._prompting = False
+            buffered = self._buffered_lines[:]
+            self._buffered_lines.clear()
+        # Flush buffered lines before restarting live region
+        for line in buffered:
+            self._console.print(line)
+            self._lines_since_legend += 1
+            if self._lines_since_legend >= _LEGEND_INTERVAL:
+                self._print_legend()
+                self._lines_since_legend = 0
         if self._live is not None:
             self._live.start()
 
@@ -402,7 +422,7 @@ class ConsoleDisplay:
 
     def _refresh_live(self) -> None:
         """Update the Live region with all active requests."""
-        if not self._is_tty or self._live is None:
+        if not self._is_tty or self._live is None or self._prompting:
             return
 
         if not self._active:
