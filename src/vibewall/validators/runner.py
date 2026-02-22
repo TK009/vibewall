@@ -9,7 +9,14 @@ import structlog
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus, RunResult
-from vibewall.validators.action import maybe_ask, maybe_ask_llm, maybe_downgrade
+from vibewall.llm.history import HistoryEntry
+from vibewall.validators.action import (
+    _resolve_llm_per_check,
+    batch_ask_llm,
+    is_ask_llm_action,
+    maybe_ask,
+    maybe_downgrade,
+)
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.checks import SCOPE_ORDER
 
@@ -122,20 +129,16 @@ class CheckRunner:
                 )
                 for check, result in zip(to_run, results):
                     display = await maybe_ask(check.name, target, result, self._config, on_ask)
-                    display = await maybe_ask_llm(
-                        check.name, target, scope, display,
-                        all_results, self._config,
-                        self._llm_client,
-                        self._history.recent() if self._history else None,
-                    )
-                    display = maybe_downgrade(check.name, display, self._config)
+                    # Defer LLM decisions to post-loop batch; only
+                    # downgrade non-LLM checks here.
+                    if not self._is_llm_action(check.name, display):
+                        display = maybe_downgrade(check.name, display, self._config)
                     all_results.append((check.name, display))
                     context.add(check.name, result)
                     completed_names.add(check.name)
                     ttl = self._get_ttl(check.name)
-                    # Cache both raw and display: raw is needed by
-                    # dependent checks via context, display is the
-                    # post-decision result (approved asks cached as SUS).
+                    # Cache raw + pre-LLM display; LLM decisions are
+                    # applied fresh each request via _apply_llm_decisions.
                     self._cache.set(f"{check.name}:{target}", (result, display), ttl)
                     self._notify(on_check_done, check.name, display)
 
@@ -152,9 +155,75 @@ class CheckRunner:
                     self._record_history(scope, target, all_results, run_result)
                     return run_result
 
+        # Batch LLM adjudication after all checks complete
+        all_results = await self._apply_llm_decisions(scope, target, all_results)
+
         run_result = self._finalize(all_results)
         self._record_history(scope, target, all_results, run_result)
         return run_result
+
+    def _is_llm_action(self, check_name: str, result: CheckResult) -> bool:
+        """Check if this result's action is an ask-llm-* variant."""
+        if result.status != CheckStatus.FAIL:
+            return False
+        vc = self._config.get_validator(check_name)
+        action = result.data.get("action_override") or (vc.action if vc else "block")
+        return is_ask_llm_action(action)
+
+    def _llm_cache_ttl(self) -> int:
+        """Return the LLM decision cache TTL (0 = disabled)."""
+        if self._config.llm is not None:
+            return self._config.llm.cache_ttl
+        return 0
+
+    async def _apply_llm_decisions(
+        self,
+        scope: str,
+        target: str,
+        all_results: list[tuple[str, CheckResult]],
+    ) -> list[tuple[str, CheckResult]]:
+        """Collect ask-llm-* FAILs, make one LLM call, update results."""
+        pending_indices: list[int] = []
+        pending_items: list[tuple[str, CheckResult]] = []
+
+        for i, (name, result) in enumerate(all_results):
+            if self._is_llm_action(name, result):
+                pending_indices.append(i)
+                pending_items.append((name, result))
+
+        if not pending_items:
+            return all_results
+
+        cache_key = f"llm:{scope}:{target}"
+        ttl = self._llm_cache_ttl()
+
+        # Check LLM decision cache
+        cached_decision: str | None = None
+        if ttl > 0:
+            cached_decision = self._cache.get(cache_key)
+
+        if cached_decision is not None:
+            logger.info(
+                "llm_cache_hit", target=target, decision=cached_decision,
+            )
+            resolved = [
+                (name, _resolve_llm_per_check(name, result, cached_decision, self._config))
+                for name, result in pending_items
+            ]
+        else:
+            decision, resolved = await batch_ask_llm(
+                scope, target, pending_items, all_results,
+                self._config, self._llm_client,
+                self._history.recent() if self._history else None,
+            )
+            if ttl > 0 and decision:
+                self._cache.set(cache_key, decision, ttl)
+
+        updated = list(all_results)
+        for idx, (name, new_result) in zip(pending_indices, resolved):
+            new_result = maybe_downgrade(name, new_result, self._config)
+            updated[idx] = (name, new_result)
+        return updated
 
     def _record_history(
         self,
@@ -165,12 +234,10 @@ class CheckRunner:
     ) -> None:
         if self._history is None:
             return
-        from vibewall.llm.history import HistoryEntry
-
         self._history.add(HistoryEntry(
             scope=scope,
             target=target,
-            results=list(all_results),
+            results=tuple(all_results),
             outcome="allowed" if run_result.allowed else "blocked",
         ))
 

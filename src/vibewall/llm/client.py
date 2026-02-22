@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import aiohttp
 import structlog
 
@@ -16,11 +18,13 @@ class LlmClient:
     def __init__(self, config: LlmConfig, session: aiohttp.ClientSession) -> None:
         self._config = config
         self._session = session
+        self._semaphore = asyncio.Semaphore(config.max_concurrent)
 
     async def ask(self, system_prompt: str, user_prompt: str) -> str:
-        if self._config.provider == "anthropic":
-            return await self._ask_anthropic(system_prompt, user_prompt)
-        return await self._ask_openai(system_prompt, user_prompt)
+        async with self._semaphore:
+            if self._config.provider == "anthropic":
+                return await self._ask_anthropic(system_prompt, user_prompt)
+            return await self._ask_openai(system_prompt, user_prompt)
 
     async def _ask_anthropic(self, system_prompt: str, user_prompt: str) -> str:
         base = self._config.base_url or _DEFAULT_ANTHROPIC_URL

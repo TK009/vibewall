@@ -10,7 +10,7 @@ from vibewall.llm.client import LlmClient
 from vibewall.llm.history import HistoryEntry, RequestHistory
 from vibewall.llm.prompt import build_llm_prompt
 from vibewall.models import CheckContext, CheckResult, CheckStatus
-from vibewall.validators.action import _parse_llm_decision, maybe_ask_llm
+from vibewall.validators.action import _parse_llm_decision, batch_ask_llm
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.runner import CheckRunner
 
@@ -32,14 +32,11 @@ class TestParseLlmDecision:
     def test_structured_case_insensitive(self) -> None:
         assert _parse_llm_decision("decision: allow\nOk") == "ALLOW"
 
-    def test_keyword_fallback_block(self) -> None:
-        assert _parse_llm_decision("I would BLOCK this package.") == "BLOCK"
+    def test_no_decision_line_returns_empty(self) -> None:
+        assert _parse_llm_decision("I would BLOCK this package.") == ""
 
-    def test_keyword_fallback_allow(self) -> None:
-        assert _parse_llm_decision("I think we should allow it.") == "ALLOW"
-
-    def test_keyword_fallback_warn(self) -> None:
-        assert _parse_llm_decision("This deserves a warn.") == "WARN"
+    def test_decision_line_after_prose(self) -> None:
+        assert _parse_llm_decision("Let me think...\nDECISION: BLOCK\nBecause risky.") == "BLOCK"
 
     def test_ambiguous_returns_empty(self) -> None:
         assert _parse_llm_decision("I'm not sure what to do.") == ""
@@ -58,7 +55,7 @@ class TestRequestHistory:
         for i in range(3):
             history.add(HistoryEntry(
                 scope="npm", target=f"pkg-{i}",
-                results=[("check", CheckResult.ok("ok"))],
+                results=(("check", CheckResult.ok("ok")),),
                 outcome="allowed",
             ))
         recent = history.recent(2)
@@ -72,7 +69,7 @@ class TestRequestHistory:
         for i in range(5):
             history.add(HistoryEntry(
                 scope="npm", target=f"pkg-{i}",
-                results=[], outcome="allowed",
+                results=(), outcome="allowed",
             ))
         recent = history.recent(10)
         assert len(recent) == 3
@@ -83,7 +80,7 @@ class TestRequestHistory:
         for i in range(20):
             history.add(HistoryEntry(
                 scope="npm", target=f"pkg-{i}",
-                results=[], outcome="allowed",
+                results=(), outcome="allowed",
             ))
         recent = history.recent()
         assert len(recent) == 12  # default n=12
@@ -119,7 +116,7 @@ class TestBuildLlmPrompt:
         entries = [
             HistoryEntry(
                 scope="npm", target="prev-pkg",
-                results=[("npm_age", CheckResult.ok("old enough"))],
+                results=(("npm_age", CheckResult.ok("old enough")),),
                 outcome="allowed",
             ),
         ]
@@ -141,10 +138,10 @@ class TestBuildLlmPrompt:
 
 
 # ---------------------------------------------------------------------------
-# maybe_ask_llm
+# batch_ask_llm
 # ---------------------------------------------------------------------------
 
-class TestMaybeAskLlm:
+class TestBatchAskLlm:
     @pytest.fixture
     def config(self) -> VibewallConfig:
         cfg = VibewallConfig()
@@ -168,110 +165,129 @@ class TestMaybeAskLlm:
 
     async def test_llm_allow_response(self, config: VibewallConfig) -> None:
         client = self._mock_client("DECISION: ALLOW\nLooks fine.")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config, client, None,
-        )
-        assert result.status == CheckStatus.SUS
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, client, None)
+        assert decision == "ALLOW"
+        assert resolved[0][1].status == CheckStatus.SUS
 
     async def test_llm_block_response(self, config: VibewallConfig) -> None:
         client = self._mock_client("DECISION: BLOCK\nToo risky.")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config, client, None,
-        )
-        assert result.status == CheckStatus.FAIL
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, client, None)
+        assert decision == "BLOCK"
+        assert resolved[0][1].status == CheckStatus.FAIL
 
     async def test_llm_warn_response(self, config: VibewallConfig) -> None:
         client = self._mock_client("DECISION: WARN\nNot sure.")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config, client, None,
-        )
-        assert result.status == CheckStatus.SUS
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, client, None)
+        assert decision == "WARN"
+        assert resolved[0][1].status == CheckStatus.SUS
 
     async def test_error_fallback_ask_llm_block(self, config: VibewallConfig) -> None:
         client = MagicMock(spec=LlmClient)
         client.ask = AsyncMock(side_effect=RuntimeError("boom"))
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config, client, None,
-        )
-        # ask-llm-block → fallback to FAIL
-        assert result.status == CheckStatus.FAIL
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, client, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.FAIL
 
     async def test_error_fallback_ask_llm_allow(self, config_allow: VibewallConfig) -> None:
         client = MagicMock(spec=LlmClient)
         client.ask = AsyncMock(side_effect=RuntimeError("boom"))
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config_allow, client, None,
-        )
-        # ask-llm-allow → fallback to SUS
-        assert result.status == CheckStatus.SUS
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config_allow, client, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.SUS
 
     async def test_no_client_fallback_block(self, config: VibewallConfig) -> None:
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config, None, None,
-        )
-        # ask-llm-block with no client → FAIL
-        assert result.status == CheckStatus.FAIL
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, None, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.FAIL
 
     async def test_no_client_fallback_allow(self, config_allow: VibewallConfig) -> None:
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            config_allow, None, None,
-        )
-        # ask-llm-allow with no client → SUS
-        assert result.status == CheckStatus.SUS
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config_allow, None, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.SUS
 
-    async def test_non_fail_passthrough(self, config: VibewallConfig) -> None:
+    async def test_unrecognized_decision_fallback_block(self, config: VibewallConfig) -> None:
+        client = self._mock_client("I'm not sure what to do here.")
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config, client, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.FAIL
+
+    async def test_unrecognized_decision_fallback_allow(self, config_allow: VibewallConfig) -> None:
+        client = self._mock_client("I'm not sure what to do here.")
+        pending = [("npm_age", CheckResult.fail("too new"))]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], config_allow, client, None)
+        assert decision == ""
+        assert resolved[0][1].status == CheckStatus.SUS
+
+    async def test_empty_pending_returns_empty(self, config: VibewallConfig) -> None:
         client = self._mock_client("DECISION: BLOCK")
-        ok_result = CheckResult.ok("all good")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            ok_result, [],
-            config, client, None,
-        )
-        assert result.status == CheckStatus.OK
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", [], [], config, client, None)
+        assert decision == ""
+        assert resolved == []
         client.ask.assert_not_called()
 
-    async def test_non_llm_action_passthrough(self) -> None:
+    async def test_batch_multiple_checks_single_call(self) -> None:
+        """Multiple pending checks should result in exactly one LLM call."""
         cfg = VibewallConfig()
-        cfg.validators = {"npm_age": ValidatorConfig(action="block")}
-        client = self._mock_client("DECISION: ALLOW")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new"), [],
-            cfg, client, None,
-        )
-        assert result.status == CheckStatus.FAIL
-        client.ask.assert_not_called()
+        cfg.validators = {
+            "npm_age": ValidatorConfig(action="ask-llm-block"),
+            "npm_downloads": ValidatorConfig(action="ask-llm-block"),
+        }
+        client = MagicMock(spec=LlmClient)
+        client.ask = AsyncMock(return_value="DECISION: ALLOW\nAll fine.")
+        pending = [
+            ("npm_age", CheckResult.fail("too new")),
+            ("npm_downloads", CheckResult.fail("low downloads")),
+        ]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], cfg, client, None)
+        assert decision == "ALLOW"
+        assert len(resolved) == 2
+        assert all(r.status == CheckStatus.SUS for _, r in resolved)
+        client.ask.assert_called_once()
 
-    async def test_action_override(self) -> None:
-        """action_override in result data should take precedence over config."""
+    async def test_batch_mixed_actions(self) -> None:
+        """Different ask-llm-allow/block actions get correct fallbacks."""
         cfg = VibewallConfig()
-        cfg.validators = {"npm_age": ValidatorConfig(action="block")}
-        client = self._mock_client("DECISION: ALLOW\nok")
-        result = await maybe_ask_llm(
-            "npm_age", "test-pkg", "npm",
-            CheckResult.fail("too new", action_override="ask-llm-block"), [],
-            cfg, client, None,
-        )
-        assert result.status == CheckStatus.SUS
+        cfg.validators = {
+            "npm_age": ValidatorConfig(action="ask-llm-block"),
+            "npm_downloads": ValidatorConfig(action="ask-llm-allow"),
+        }
+        client = self._mock_client("DECISION: BLOCK\nRisky.")
+        pending = [
+            ("npm_age", CheckResult.fail("too new")),
+            ("npm_downloads", CheckResult.fail("low downloads")),
+        ]
+        decision, resolved = await batch_ask_llm("npm", "test-pkg", pending, [], cfg, client, None)
+        assert decision == "BLOCK"
+        # Both should get BLOCK → FAIL
+        assert resolved[0][1].status == CheckStatus.FAIL
+        assert resolved[1][1].status == CheckStatus.FAIL
 
 
 # ---------------------------------------------------------------------------
 # LlmClient
 # ---------------------------------------------------------------------------
+
+class TestLlmConfigRepr:
+    def test_masks_long_key(self) -> None:
+        cfg = LlmConfig(api_key="sk-abc123def456")
+        r = repr(cfg)
+        assert "sk-abc123def456" not in r
+        assert "...f456" in r
+
+    def test_masks_short_key(self) -> None:
+        assert "***" in repr(LlmConfig(api_key="ab"))
+
+    def test_masks_empty_key(self) -> None:
+        assert "***" in repr(LlmConfig(api_key=""))
+
 
 class TestLlmClient:
     async def test_anthropic_provider(self) -> None:
@@ -319,6 +335,36 @@ class TestLlmClient:
         call_kwargs = session.post.call_args
         headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
         assert headers["Authorization"] == "Bearer test-key"
+
+    async def test_semaphore_limits_concurrency(self) -> None:
+        import asyncio
+        from contextlib import asynccontextmanager
+
+        config = LlmConfig(provider="anthropic", api_key="k", model="m", max_concurrent=2)
+        peak = 0
+        active = 0
+
+        @asynccontextmanager
+        async def _fake_post(url, **kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0.05)
+            active -= 1
+
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = AsyncMock(return_value={
+                "content": [{"text": "ok"}],
+            })
+            yield mock_resp
+
+        session = MagicMock()
+        session.post = _fake_post
+
+        client = LlmClient(config, session)
+        await asyncio.gather(*[client.ask("sys", "usr") for _ in range(5)])
+        assert peak <= 2
 
 
 # ---------------------------------------------------------------------------
@@ -409,3 +455,115 @@ class TestRunnerLlmIntegration:
         runner = CheckRunner([check], config, TTLCache())
         result = await runner.run("npm", "test-pkg")
         assert result.blocked
+
+    async def test_multiple_llm_checks_single_call(self) -> None:
+        """Multiple ask-llm checks should produce exactly one LLM call."""
+        config = VibewallConfig()
+        config.validators = {
+            "npm_age": ValidatorConfig(action="ask-llm-block"),
+            "npm_downloads": ValidatorConfig(action="ask-llm-block"),
+        }
+        checks = [
+            StubCheck("npm_age", "npm", result=CheckResult.fail("too new")),
+            StubCheck("npm_downloads", "npm", result=CheckResult.fail("low")),
+        ]
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="DECISION: BLOCK\nRisky")
+
+        history = RequestHistory()
+        runner = CheckRunner(
+            checks, config, TTLCache(),
+            llm_client=mock_client, history=history,
+        )
+        result = await runner.run("npm", "test-pkg")
+        assert result.blocked
+        mock_client.ask.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# LLM decision caching
+# ---------------------------------------------------------------------------
+
+class TestLlmDecisionCaching:
+    def _make_runner(
+        self, mock_client: LlmClient, cache: TTLCache, cache_ttl: int = 120,
+    ) -> CheckRunner:
+        config = VibewallConfig()
+        config.llm = LlmConfig(api_key="test-key", cache_ttl=cache_ttl)
+        config.validators = {
+            "npm_age": ValidatorConfig(action="ask-llm-block"),
+        }
+        check = StubCheck("npm_age", "npm", result=CheckResult.fail("too new"))
+        return CheckRunner(
+            [check], config, cache,
+            llm_client=mock_client, history=RequestHistory(),
+        )
+
+    async def test_cached_decision_reused(self) -> None:
+        """Second run for same target reuses cached LLM decision."""
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="DECISION: ALLOW\nOk")
+        cache = TTLCache()
+        runner = self._make_runner(mock_client, cache)
+
+        r1 = await runner.run("npm", "test-pkg")
+        assert r1.allowed
+        assert mock_client.ask.call_count == 1
+
+        r2 = await runner.run("npm", "test-pkg")
+        assert r2.allowed
+        # LLM should NOT be called a second time
+        assert mock_client.ask.call_count == 1
+
+    async def test_ttl_zero_disables_caching(self) -> None:
+        """With cache_ttl=0, every request calls the LLM."""
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="DECISION: ALLOW\nOk")
+        cache = TTLCache()
+        runner = self._make_runner(mock_client, cache, cache_ttl=0)
+
+        await runner.run("npm", "test-pkg")
+        await runner.run("npm", "test-pkg")
+        assert mock_client.ask.call_count == 2
+
+    async def test_different_targets_separate_cache(self) -> None:
+        """Different targets get independent cache entries."""
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="DECISION: BLOCK\nRisky")
+        cache = TTLCache()
+        runner = self._make_runner(mock_client, cache)
+
+        r1 = await runner.run("npm", "pkg-a")
+        assert r1.blocked
+
+        r2 = await runner.run("npm", "pkg-b")
+        assert r2.blocked
+
+        # Both targets should have triggered separate LLM calls
+        assert mock_client.ask.call_count == 2
+
+    async def test_empty_decision_not_cached(self) -> None:
+        """Fallback (empty) decisions should not be cached."""
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="I'm not sure what to do.")
+        cache = TTLCache()
+        runner = self._make_runner(mock_client, cache)
+
+        await runner.run("npm", "test-pkg")
+        await runner.run("npm", "test-pkg")
+        # Empty decision → not cached → LLM called both times
+        assert mock_client.ask.call_count == 2
+
+    async def test_cached_block_decision_applied(self) -> None:
+        """Cached BLOCK decision correctly blocks on reuse."""
+        mock_client = MagicMock(spec=LlmClient)
+        mock_client.ask = AsyncMock(return_value="DECISION: BLOCK\nNo")
+        cache = TTLCache()
+        runner = self._make_runner(mock_client, cache)
+
+        r1 = await runner.run("npm", "test-pkg")
+        assert r1.blocked
+
+        r2 = await runner.run("npm", "test-pkg")
+        assert r2.blocked
+        assert mock_client.ask.call_count == 1

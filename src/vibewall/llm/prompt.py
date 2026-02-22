@@ -38,7 +38,7 @@ def build_llm_prompt(
     if history:
         lines.append("")
         lines.append("Recent request history:")
-        for entry in history[:12]:
+        for entry in history:
             statuses = ", ".join(
                 f"{n}={r.status.value}" for n, r in entry.results
             )

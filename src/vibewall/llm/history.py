@@ -10,7 +10,7 @@ from vibewall.models import CheckResult
 class HistoryEntry:
     scope: str
     target: str
-    results: list[tuple[str, CheckResult]]
+    results: tuple[tuple[str, CheckResult], ...]
     outcome: str  # "allowed" or "blocked"
 
 

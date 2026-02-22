@@ -93,6 +93,7 @@ cache_ttl = 3600
 # base_url = ""                             # override for OpenAI-compatible endpoints
 # max_tokens = 256
 # temperature = 0.0
+# cache_ttl = 120                           # seconds; 0 = disable LLM decision caching
 
 [notifications]
 # enabled = true        # auto-detect notify-send on PATH

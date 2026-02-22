@@ -53,6 +53,17 @@ class LlmConfig:
     base_url: str | None = None  # override for OpenAI-compatible endpoints
     max_tokens: int = 256
     temperature: float = 0.0
+    max_concurrent: int = 5  # max concurrent LLM API calls
+    cache_ttl: int = 120  # seconds; 0 = disabled
+
+    def __repr__(self) -> str:
+        masked = f"...{self.api_key[-4:]}" if len(self.api_key) >= 4 else "***"
+        return (
+            f"LlmConfig(provider={self.provider!r}, model={self.model!r}, "
+            f"api_key={masked!r}, base_url={self.base_url!r}, "
+            f"max_tokens={self.max_tokens!r}, temperature={self.temperature!r}, "
+            f"max_concurrent={self.max_concurrent!r}, cache_ttl={self.cache_ttl!r})"
+        )
 
 
 @dataclass
@@ -130,6 +141,8 @@ class VibewallConfig:
                 base_url=llm_data.get("base_url"),
                 max_tokens=llm_data.get("max_tokens", 256),
                 temperature=llm_data.get("temperature", 0.0),
+                max_concurrent=llm_data.get("max_concurrent", 5),
+                cache_ttl=llm_data.get("cache_ttl", 120),
             )
 
         # Per-validator config from [validators.*] sections

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from vibewall.config import VibewallConfig
+from vibewall.llm.prompt import build_llm_prompt
 from vibewall.models import CheckResult, CheckStatus
 
 if TYPE_CHECKING:
@@ -81,74 +82,87 @@ def is_ask_llm_action(action: str) -> bool:
 def _parse_llm_decision(response: str) -> str:
     """Extract decision from LLM response.
 
-    Looks for ``DECISION: ALLOW|BLOCK|WARN`` on a line, falls back to
-    keyword scanning.
+    Looks for ``DECISION: ALLOW|BLOCK|WARN`` on a line.  Returns empty
+    string when the structured line is absent -- callers use this to
+    apply the action-appropriate fallback.
     """
     for line in response.splitlines():
         m = re.match(r"^\s*DECISION:\s*(ALLOW|BLOCK|WARN)\b", line, re.IGNORECASE)
         if m:
             return m.group(1).upper()
-    # Keyword fallback
-    upper = response.upper()
-    if "BLOCK" in upper:
-        return "BLOCK"
-    if "ALLOW" in upper:
-        return "ALLOW"
-    if "WARN" in upper:
-        return "WARN"
     return ""
 
 
-async def maybe_ask_llm(
-    check_name: str,
-    target: str,
-    scope: str,
+def _resolve_llm_per_check(
+    name: str,
     result: CheckResult,
-    all_results: list[tuple[str, CheckResult]],
+    decision: str,
     config: VibewallConfig,
-    llm_client: LlmClient | None,
-    history: list[HistoryEntry] | None,
 ) -> CheckResult:
-    """Delegate allow/block decision to an LLM for ask-llm-* actions.
-
-    - ask-llm-allow: on LLM/error fallback → SUS (allow)
-    - ask-llm-block: on LLM/error fallback → FAIL (block)
-    LLM ALLOW → SUS, BLOCK → FAIL, WARN → SUS.
-    """
-    if result.status != CheckStatus.FAIL:
-        return result
-    vc = config.get_validator(check_name)
+    """Apply a single LLM decision to one check result."""
+    vc = config.get_validator(name)
     action = result.data.get("action_override") or (vc.action if vc else "block")
-    if not is_ask_llm_action(action):
-        return result
-
     allow_result = CheckResult(status=CheckStatus.SUS, reason=result.reason, data=result.data)
     block_result = result
     fallback = allow_result if action == "ask-llm-allow" else block_result
 
+    if decision == "ALLOW":
+        return allow_result
+    if decision == "BLOCK":
+        return block_result
+    if decision == "WARN":
+        return allow_result
+    # Empty / unrecognized → action-appropriate fallback
+    return fallback
+
+
+async def batch_ask_llm(
+    scope: str,
+    target: str,
+    pending: list[tuple[str, CheckResult]],
+    all_results: list[tuple[str, CheckResult]],
+    config: VibewallConfig,
+    llm_client: LlmClient | None,
+    history: list[HistoryEntry] | None,
+) -> tuple[str, list[tuple[str, CheckResult]]]:
+    """Adjudicate all ask-llm-* FAILs in one LLM call.
+
+    Makes a single LLM request with all check results and applies the
+    decision to each pending item.  Falls back per-check on error or
+    when no client is configured.
+
+    Returns ``(decision, resolved)`` where *decision* is the raw LLM
+    decision string (``"ALLOW"``, ``"BLOCK"``, ``"WARN"``, or ``""``
+    for fallback/error) and *resolved* is the list of per-check results.
+    """
+    if not pending:
+        return ("", [])
+
+    def _fallbacks() -> tuple[str, list[tuple[str, CheckResult]]]:
+        resolved = []
+        for name, result in pending:
+            resolved.append((name, _resolve_llm_per_check(name, result, "", config)))
+        return ("", resolved)
+
     if llm_client is None:
-        return fallback
+        return _fallbacks()
 
     try:
-        from vibewall.llm.prompt import build_llm_prompt
-
         system_prompt, user_prompt = build_llm_prompt(
             scope, target, all_results, history,
         )
         response = await llm_client.ask(system_prompt, user_prompt)
         decision = _parse_llm_decision(response)
         logger.info(
-            "llm_decision",
-            check=check_name,
+            "llm_batch_decision",
             target=target,
+            pending_checks=[n for n, _ in pending],
             decision=decision,
         )
-        if decision == "ALLOW":
-            return allow_result
-        if decision == "BLOCK":
-            return block_result
-        # WARN or unrecognized → treat as SUS
-        return allow_result
+        return (decision, [
+            (name, _resolve_llm_per_check(name, result, decision, config))
+            for name, result in pending
+        ])
     except Exception:
-        logger.exception("ask_llm_error", check=check_name, target=target)
-        return fallback
+        logger.exception("batch_ask_llm_error", target=target)
+        return _fallbacks()
