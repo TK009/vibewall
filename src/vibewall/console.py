@@ -62,6 +62,7 @@ class ConsoleDisplay:
         scope_order: dict[str, list[str]],
         verbose: bool = False,
         notifier: Notifier | None = None,
+        ask_timeout: int = 120,
     ) -> None:
         """
         enabled_checks: {"npm": ["npm_blocklist", ...], "url": ["url_blocklist", ...]}
@@ -82,6 +83,7 @@ class ConsoleDisplay:
             resume_live=self.resume_live,
             get_active_lines=self.get_active_lines,
             notifier=notifier,
+            ask_timeout=ask_timeout,
         )
 
         # Stats

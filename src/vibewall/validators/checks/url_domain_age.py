@@ -41,7 +41,9 @@ class UrlDomainAgeCheck(BaseCheck):
             age_days = (datetime.now(timezone.utc) - creation).days
             if age_days < self._min_days:
                 return CheckResult.fail(
-                    f"domain is only {age_days} days old (minimum: {self._min_days})"
+                    f"domain is only {age_days} days old (minimum: {self._min_days})",
+                    age_days=age_days,
+                    min_days=self._min_days,
                 )
             return CheckResult.ok(f"domain age: {age_days} days")
         except asyncio.TimeoutError:

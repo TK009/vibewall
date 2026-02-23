@@ -2,6 +2,53 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from vibewall.models import CheckResult
+
+# Severity ordering for notification display
+_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MODERATE": 2, "MEDIUM": 2, "LOW": 3}
+
+# Data keys to skip in notification body (already in reason string or internal)
+_SKIP_DATA_KEYS = {
+    "action_override", "advisories",  # handled specially
+    "registry_data", "status_code",   # internal/bulk data
+    "allowlisted",                    # internal routing flag
+}
+
+
+def _format_check_details(results: list[tuple[str, CheckResult]]) -> str:
+    """Build a notification body from check results, including advisory details."""
+    from vibewall.models import CheckStatus
+
+    lines: list[str] = []
+    for name, cr in results:
+        if cr.status in (CheckStatus.OK, CheckStatus.ERR):
+            continue
+
+        lines.append(f"{name}: {cr.reason}")
+
+        if not cr.data:
+            continue
+
+        advisories = cr.data.get("advisories")
+        if advisories and isinstance(advisories, list):
+            for adv in advisories:
+                sev = adv.get("severity", "UNKNOWN").upper()
+                vuln_id = adv.get("id", "unknown")
+                summary = adv.get("summary", "")
+                line = f"  [{sev}] {vuln_id}"
+                if summary:
+                    line += f" — {summary}"
+                lines.append(line)
+
+        for key, value in cr.data.items():
+            if key in _SKIP_DATA_KEYS:
+                continue
+            lines.append(f"  {key}: {value}")
+
+    return "\n".join(lines)
 
 
 class Notifier:
@@ -18,21 +65,34 @@ class Notifier:
             self._available = shutil.which("notify-send") is not None
         return self._available and self._enabled
 
-    async def notify_blocked(self, scope: str, target: str, reason: str) -> None:
+    async def notify_blocked(
+        self,
+        scope: str,
+        target: str,
+        reason: str,
+        results: list[tuple[str, CheckResult]] | None = None,
+    ) -> None:
         """Fire-and-forget notification for blocked requests."""
         if not await self._is_available():
             return
+        body = _format_check_details(results) if results else reason
         asyncio.create_task(self._send(
             urgency="critical",
             summary=f"Blocked: {target}",
-            body=reason,
+            body=body,
         ))
 
-    async def notify_warned(self, scope: str, target: str, warnings: list[str]) -> None:
+    async def notify_warned(
+        self,
+        scope: str,
+        target: str,
+        warnings: list[str],
+        results: list[tuple[str, CheckResult]] | None = None,
+    ) -> None:
         """Fire-and-forget notification for warned requests."""
         if not await self._is_available():
             return
-        body = "\n".join(warnings)
+        body = _format_check_details(results) if results else "\n".join(warnings)
         asyncio.create_task(self._send(
             urgency="normal",
             summary=f"Warning: {target}",

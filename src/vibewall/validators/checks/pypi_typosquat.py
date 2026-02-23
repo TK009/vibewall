@@ -42,7 +42,9 @@ class PypiTyposquatCheck(BaseCheck):
             if dist <= self._max_distance:
                 return CheckResult.fail(
                     f"package '{target}' looks like a typosquat of '{known}' "
-                    f"(edit distance: {dist})"
+                    f"(edit distance: {dist})",
+                    similar_to=known,
+                    edit_distance=dist,
                 )
 
         return CheckResult.ok(f"package '{target}' is not a typosquat")

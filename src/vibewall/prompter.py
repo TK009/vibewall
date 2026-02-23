@@ -51,12 +51,14 @@ class InteractivePrompter:
         resume_live: Callable[[], None],
         get_active_lines: Callable[[], list[Text]],
         notifier: Notifier | None = None,
+        ask_timeout: int = 120,
     ) -> None:
         self._console = console
         self._pause_live = pause_live
         self._resume_live = resume_live
         self._get_active_lines = get_active_lines
         self._notifier = notifier
+        self._ask_timeout = ask_timeout
         self._ask_lock = asyncio.Lock()
 
     async def prompt_ask(self, check_name: str, target: str, result: CheckResult) -> bool:
@@ -132,33 +134,29 @@ class InteractivePrompter:
                         self._notifier.prompt_ask(check_name, target, result.reason)
                     )
 
-                tasks: list[asyncio.Task] = [terminal_task]
+                tasks: set[asyncio.Task] = {terminal_task}
                 if notify_task is not None:
-                    tasks.append(notify_task)
+                    tasks.add(notify_task)
 
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                approved: bool | None = None
+                try:
+                    approved = await asyncio.wait_for(
+                        self._wait_for_decision(tasks, terminal_task, notify_task),
+                        timeout=self._ask_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    # Overall ask timeout expired; return None to let caller
+                    # fall through to the action's default (allow/block).
+                    approved = None
 
-                # Cancel remaining tasks. Note: _read_single_key runs in an
-                # executor thread and can't be truly interrupted — the thread
-                # will block until the next keypress, which is silently consumed.
-                for task in pending:
-                    task.cancel()
+                # Cancel any remaining tasks
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
 
-                winner = done.pop()
-                if winner is terminal_task:
-                    try:
-                        ch = winner.result()
-                    except (KeyboardInterrupt, EOFError):
-                        self._console.print()
-                        return False
-                    approved = ch.lower() != "n"
-                else:
-                    try:
-                        notify_result = winner.result()
-                    except Exception:
-                        # Notification subprocess failed; default to allow (same as dismiss)
-                        notify_result = None
-                    approved = notify_result if notify_result is not None else True
+                if approved is None:
+                    self._console.print("[dim]timed out[/dim]")
+                    return False
 
                 label = "yes" if approved else "no"
                 style = "green" if approved else "red"
@@ -166,3 +164,42 @@ class InteractivePrompter:
                 return approved
             finally:
                 self._resume_live()
+
+    async def _wait_for_decision(
+        self,
+        tasks: set[asyncio.Task],
+        terminal_task: asyncio.Task,
+        notify_task: asyncio.Task | None,
+    ) -> bool:
+        """Wait for a definitive user decision from terminal or notification.
+
+        If the notification finishes with None (dismissed/timed out), it is
+        removed from the task set and we continue waiting for terminal input.
+        Only an explicit True/False from the notification counts as a decision.
+        """
+        while tasks:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            tasks.clear()
+            tasks.update(pending)
+
+            for winner in done:
+                if winner is terminal_task:
+                    try:
+                        ch = winner.result()
+                    except (KeyboardInterrupt, EOFError):
+                        self._console.print()
+                        return False
+                    return ch.lower() != "n"
+                else:
+                    # Notification task finished
+                    try:
+                        notify_result = winner.result()
+                    except Exception:
+                        notify_result = None
+                    if notify_result is not None:
+                        return notify_result
+                    # Notification dismissed/timed out (None) — keep waiting
+                    # for terminal input
+
+        # All tasks exhausted without a decision (shouldn't happen normally)
+        return False

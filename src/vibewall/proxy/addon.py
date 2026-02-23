@@ -178,11 +178,15 @@ class VibewallAddon:
         if self._notifier is not None:
             if result.blocked and self._config.notifications.blocked:
                 asyncio.create_task(
-                    self._notifier.notify_blocked(scope, target, result.reason)
+                    self._notifier.notify_blocked(
+                        scope, target, result.reason, results=result.results,
+                    )
                 )
             elif result.warnings and self._config.notifications.warned:
                 asyncio.create_task(
-                    self._notifier.notify_warned(scope, target, result.warnings)
+                    self._notifier.notify_warned(
+                        scope, target, result.warnings, results=result.results,
+                    )
                 )
 
         if result.blocked:

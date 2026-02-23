@@ -124,6 +124,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     display = ConsoleDisplay(
         enabled_checks, CHECK_ABBREVS, SCOPE_ORDER, verbose=verbose,
         notifier=notifier if config.notifications.ask else None,
+        ask_timeout=config.notifications.ask_timeout,
     )
     display.set_port(config.port)
 

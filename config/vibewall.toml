@@ -103,7 +103,8 @@ cache_ttl = 3600
 # blocked = true        # notify on blocked requests
 # warned = true         # notify on warned requests
 # ask = true            # interactive ask-mode notifications
-# expire_ms = 10000     # notification timeout in ms
+expire_ms = 20000       # notification timeout in ms
+ask_timeout = 70        # seconds; overall timeout for interactive ask prompts
 
 [cache]
 default_ttl = 3600

@@ -44,6 +44,7 @@ class NotificationsConfig:
     warned: bool = True  # notify on warned requests
     ask: bool = True  # interactive notification for ask-mode
     expire_ms: int = 10000  # notification timeout in ms
+    ask_timeout: int = 120  # seconds; overall timeout for ask prompts
 
 
 @dataclass
@@ -127,6 +128,7 @@ class VibewallConfig:
                 warned=n.get("warned", cfg.notifications.warned),
                 ask=n.get("ask", cfg.notifications.ask),
                 expire_ms=n.get("expire_ms", cfg.notifications.expire_ms),
+                ask_timeout=n.get("ask_timeout", cfg.notifications.ask_timeout),
             )
 
         # LLM config

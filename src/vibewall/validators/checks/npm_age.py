@@ -32,7 +32,9 @@ class NpmAgeCheck(BaseCheck):
         if age_days < self._min_days:
             return CheckResult.fail(
                 f"package '{target}' is only {age_days} days old "
-                f"(minimum: {self._min_days})"
+                f"(minimum: {self._min_days})",
+                age_days=age_days,
+                min_days=self._min_days,
             )
 
         return CheckResult.ok(f"package '{target}' is {age_days} days old")
