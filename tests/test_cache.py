@@ -132,3 +132,59 @@ class TestEviction:
         cache.set("a", 10, ttl=60)
         assert cache.get("a") == 10
         assert cache.get("b") == 2
+
+
+class TestGetWithFreshness:
+    def test_missing_key_returns_none(self) -> None:
+        cache = TTLCache()
+        assert cache.get_with_freshness("x") is None
+
+    def test_expired_returns_none(self) -> None:
+        cache = TTLCache()
+        now = time.monotonic()
+        with patch("vibewall.cache.store.time.monotonic", return_value=now):
+            cache.set("key", "val", ttl=10)
+        with patch("vibewall.cache.store.time.monotonic", return_value=now + 11):
+            assert cache.get_with_freshness("key") is None
+
+    def test_fresh_entry_not_near_expiry(self) -> None:
+        cache = TTLCache()
+        now = time.monotonic()
+        with patch("vibewall.cache.store.time.monotonic", return_value=now):
+            cache.set("key", "val", ttl=100)
+        # 50% remaining → not near expiry
+        with patch("vibewall.cache.store.time.monotonic", return_value=now + 50):
+            result = cache.get_with_freshness("key")
+            assert result is not None
+            value, near_expiry = result
+            assert value == "val"
+            assert near_expiry is False
+
+    def test_near_expiry_within_20_percent(self) -> None:
+        cache = TTLCache()
+        now = time.monotonic()
+        with patch("vibewall.cache.store.time.monotonic", return_value=now):
+            cache.set("key", "val", ttl=100)
+        # 15% remaining → near expiry
+        with patch("vibewall.cache.store.time.monotonic", return_value=now + 85):
+            result = cache.get_with_freshness("key")
+            assert result is not None
+            _, near_expiry = result
+            assert near_expiry is True
+
+    def test_exactly_at_20_percent_not_near_expiry(self) -> None:
+        cache = TTLCache()
+        now = time.monotonic()
+        with patch("vibewall.cache.store.time.monotonic", return_value=now):
+            cache.set("key", "val", ttl=100)
+        # Exactly 20% remaining → not near_expiry (< not <=)
+        with patch("vibewall.cache.store.time.monotonic", return_value=now + 80):
+            result = cache.get_with_freshness("key")
+            assert result is not None
+            _, near_expiry = result
+            assert near_expiry is False
+
+    def test_ttl_stored_in_entry(self) -> None:
+        cache = TTLCache()
+        cache.set("key", "val", ttl=42)
+        assert cache._data["key"].ttl == 42.0

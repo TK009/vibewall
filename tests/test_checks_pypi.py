@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from helpers import _simple_response
 from vibewall.models import CheckContext, CheckResult, CheckStatus
 from vibewall.validators.allowlist import AllowBlockList
 from vibewall.validators.checks.pypi_blocklist import PypiBlocklistCheck
@@ -14,16 +15,6 @@ from vibewall.validators.checks.pypi_typosquat import PypiTyposquatCheck
 from vibewall.validators.checks.pypi_age import PypiAgeCheck
 from vibewall.validators.checks.pypi_downloads import PypiDownloadsCheck
 from vibewall.validators.checks.pypi_advisories import PypiAdvisoriesCheck
-
-
-def _simple_response(status, json_data=None):
-    resp = AsyncMock()
-    resp.status = status
-    if json_data is not None:
-        resp.json = AsyncMock(return_value=json_data)
-    resp.__aenter__ = AsyncMock(return_value=resp)
-    resp.__aexit__ = AsyncMock(return_value=False)
-    return resp
 
 
 class TestPypiBlocklist:

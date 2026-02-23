@@ -9,9 +9,9 @@ from vibewall.config import LlmConfig, ValidatorConfig, VibewallConfig
 from vibewall.llm.client import LlmClient
 from vibewall.llm.history import HistoryEntry, RequestHistory
 from vibewall.llm.prompt import build_llm_prompt
-from vibewall.models import CheckContext, CheckResult, CheckStatus
+from helpers import StubCheck
+from vibewall.models import CheckResult, CheckStatus
 from vibewall.validators.action import _parse_llm_decision, batch_ask_llm, resolve_llm_per_check
-from vibewall.validators.base import BaseCheck
 from vibewall.validators.runner import CheckRunner
 
 
@@ -370,23 +370,6 @@ class TestLlmClient:
 # ---------------------------------------------------------------------------
 # Runner integration
 # ---------------------------------------------------------------------------
-
-class StubCheck(BaseCheck):
-    abbrev = "STB"
-
-    def __init__(
-        self, name: str, scope: str,
-        depends_on: list[str] | None = None,
-        result: CheckResult | None = None,
-    ):
-        self.name = name
-        self.scope = scope
-        self.depends_on = depends_on or []
-        self._result = result or CheckResult.ok("stub ok")
-
-    async def run(self, target: str, context: CheckContext) -> CheckResult:
-        return self._result
-
 
 class TestRunnerLlmIntegration:
     async def test_ask_llm_block_with_mock_client(self) -> None:

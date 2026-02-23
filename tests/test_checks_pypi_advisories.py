@@ -1,25 +1,8 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
-from vibewall.models import CheckContext, CheckStatus
+from helpers import _make_session
+from vibewall.models import CheckContext, CheckResult, CheckStatus
 from vibewall.validators.checks.pypi_advisories import PypiAdvisoriesCheck
-
-
-def _simple_response(status, json_data=None):
-    resp = AsyncMock()
-    resp.status = status
-    if json_data is not None:
-        resp.json = AsyncMock(return_value=json_data)
-    resp.__aenter__ = AsyncMock(return_value=resp)
-    resp.__aexit__ = AsyncMock(return_value=False)
-    return resp
-
-
-def _make_session(status=200, json_data=None):
-    session = MagicMock()
-    session.post = MagicMock(return_value=_simple_response(status, json_data))
-    return session
 
 
 class TestPypiAdvisoriesCheck:
@@ -83,3 +66,18 @@ class TestPypiAdvisoriesCheck:
         result = await check.run("bad-pkg", CheckContext())
         assert result.status == CheckStatus.FAIL
         assert result.data["action_override"] == "block"
+
+
+class TestPypiAdvisoryResultTTL:
+    def test_ok_short_ttl(self) -> None:
+        check = PypiAdvisoriesCheck.__new__(PypiAdvisoriesCheck)
+        result = CheckResult.ok("no advisories")
+        assert check.get_result_ttl(result, 3600) == max(300, 3600 // 4)
+
+    def test_fail_all_fixed(self) -> None:
+        check = PypiAdvisoriesCheck.__new__(PypiAdvisoriesCheck)
+        result = CheckResult.fail(
+            "1 advisory",
+            advisories=[{"has_fix": True, "id": "CVE-1"}],
+        )
+        assert check.get_result_ttl(result, 3600) == 7200

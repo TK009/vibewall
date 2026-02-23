@@ -29,6 +29,7 @@ find-links = ["wheels"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["tests"]
 
 [project.optional-dependencies]
 dev = [
