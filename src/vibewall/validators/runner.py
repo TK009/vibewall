@@ -26,6 +26,25 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+
+class _BgCounter:
+    """Mutable counter that signals an event when it reaches zero."""
+
+    __slots__ = ("_n", "_event")
+
+    def __init__(self, event: asyncio.Event) -> None:
+        self._n = 0
+        self._event = event
+
+    def inc(self) -> None:
+        self._n += 1
+
+    def dec(self) -> None:
+        self._n -= 1
+        if self._n <= 0:
+            self._event.set()
+
+
 OnCheckDone = Callable[[str, CheckResult | None], None] | None
 OnAsk = Callable[[str, str, CheckResult], Awaitable[bool]] | None
 
@@ -116,7 +135,7 @@ class CheckRunner:
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
         bg_event: asyncio.Event | None = None
-        bg_remaining: list[int] = [0]  # mutable counter for background tasks
+        bg_counter: _BgCounter | None = None
         # Set when an allowlist short-circuit fires; remaining layers are
         # filtered to only run checks with ignore_allowlist=True.
         allowlist_sc: tuple[str, CheckResult] | None = None
@@ -154,9 +173,10 @@ class CheckRunner:
             for check in to_run_bg:
                 if bg_event is None:
                     bg_event = asyncio.Event()
-                bg_remaining[0] += 1
+                    bg_counter = _BgCounter(bg_event)
+                bg_counter.inc()
                 self._spawn_background_check(
-                    check, target, context, on_check_done, bg_event, bg_remaining,
+                    check, target, context, on_check_done, bg_counter,
                 )
                 completed_names.add(check.name)
 
@@ -406,8 +426,7 @@ class CheckRunner:
         target: str,
         context: CheckContext,
         on_check_done: OnCheckDone,
-        bg_event: asyncio.Event,
-        bg_remaining: list[int],
+        bg_counter: _BgCounter,
     ) -> asyncio.Task:  # type: ignore[type-arg]
         """Run a single warn check in the background."""
         async def _do_bg() -> None:
@@ -421,9 +440,7 @@ class CheckRunner:
                 logger.exception("background_check_error", check=check.name, target=target)
                 self._notify(on_check_done, check.name, None)
             finally:
-                bg_remaining[0] -= 1
-                if bg_remaining[0] <= 0:
-                    bg_event.set()
+                bg_counter.dec()
 
         task = asyncio.create_task(_do_bg())
         self._background_tasks.add(task)
@@ -438,10 +455,11 @@ class CheckRunner:
         if cache_key in self._refreshing:
             return
         self._refreshing.add(cache_key)
+        refresh_ctx = CheckContext(version=context.version)
 
         async def _do_refresh() -> None:
             try:
-                result = await check.run(target, context)
+                result = await check.run(target, refresh_ctx)
                 display = maybe_downgrade(check.name, result, self._config)
                 ttl = self._get_result_ttl(check, result)
                 self._cache.set(cache_key, (result, display), ttl)
@@ -497,7 +515,8 @@ class CheckRunner:
                 # Check if any ignore_allowlist check returned FAIL,
                 # which overrides the allowlist decision
                 blocking_reasons = [
-                    r.reason for _, r in results if r.status == CheckStatus.FAIL
+                    r.reason for name, r in results
+                    if r.status == CheckStatus.FAIL and self._has_ignore_allowlist(name)
                 ]
                 if blocking_reasons:
                     warn_reasons = [r.reason for _, r in results if r.status == CheckStatus.SUS]

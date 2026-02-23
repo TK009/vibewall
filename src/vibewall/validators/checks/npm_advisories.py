@@ -4,9 +4,8 @@ import asyncio
 
 import aiohttp
 
-from vibewall.models import CheckContext, CheckResult
+from vibewall.models import CheckContext, CheckResult, CheckStatus
 from vibewall.validators.base import BaseCheck
-from vibewall.models import CheckStatus
 from vibewall.validators.checks._osv import (
     ACTION_ORDER,
     OSV_API_URL,

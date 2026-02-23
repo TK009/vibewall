@@ -202,8 +202,8 @@ class VibewallAddon:
     async def _deferred_finish(self, req_id: str, bg_event: asyncio.Event) -> None:
         """Wait for background checks to complete, then finalize the display line."""
         try:
-            await bg_event.wait()
-        except Exception:
+            await asyncio.wait_for(bg_event.wait(), timeout=self._config.pipeline_timeout)
+        except (asyncio.TimeoutError, Exception):
             pass
         if self._display is not None:
             self._display.finish_request(req_id)
