@@ -43,8 +43,6 @@ class PypiAdvisoriesCheck(BaseCheck):
         }
 
     def get_result_ttl(self, result: CheckResult, default_ttl: int) -> int:
-        if result.status == CheckStatus.ERR:
-            return default_ttl
         if result.status == CheckStatus.OK:
             return max(300, default_ttl // 4)
         # FAIL: if all advisories have a fix, the info is stable

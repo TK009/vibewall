@@ -377,11 +377,6 @@ class TestNpmAdvisoryResultTTL:
         ttl = check.get_result_ttl(result, 3600)
         assert ttl == max(300, 3600 // 4)  # 900
 
-    def test_err_default_ttl(self) -> None:
-        check = NpmAdvisoriesCheck.__new__(NpmAdvisoriesCheck)
-        result = CheckResult.err("timeout")
-        assert check.get_result_ttl(result, 3600) == 3600
-
     def test_fail_all_fixed_long_ttl(self) -> None:
         check = NpmAdvisoriesCheck.__new__(NpmAdvisoriesCheck)
         result = CheckResult.fail(

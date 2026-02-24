@@ -332,6 +332,51 @@ class TestRunnerResultAwareTTL:
         assert entry.ttl == 42.0
 
 
+class TestErrorTTL:
+    async def test_err_result_uses_error_ttl(self) -> None:
+        """ERR results are cached with cache.error_ttl, not the default TTL."""
+        check = StubCheck("npm_blocklist", "npm", result=CheckResult.err("timeout"))
+        config = VibewallConfig.load(None)
+        config.cache.error_ttl = 30
+        cache = TTLCache()
+        runner = CheckRunner([check], config, cache)
+
+        await runner.run("npm", "pkg")
+
+        entry = cache._data.get("npm_blocklist:pkg")
+        assert entry is not None
+        assert entry.ttl == 30.0
+
+    async def test_err_result_ignores_per_validator_ttl(self) -> None:
+        """ERR results use global error_ttl even if the validator has a custom cache_ttl."""
+        check = StubCheck("npm_registry", "npm", result=CheckResult.err("network error"))
+        config = VibewallConfig.load(None)
+        config.cache.error_ttl = 15
+        config.validators["npm_registry"] = ValidatorConfig(action="block", cache_ttl=86400)
+        cache = TTLCache()
+        runner = CheckRunner([check], config, cache)
+
+        await runner.run("npm", "pkg")
+
+        entry = cache._data.get("npm_registry:pkg")
+        assert entry is not None
+        assert entry.ttl == 15.0
+
+    async def test_ok_result_still_uses_default_ttl(self) -> None:
+        """Non-ERR results continue to use the normal TTL."""
+        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("fine"))
+        config = VibewallConfig.load(None)
+        config.cache.error_ttl = 15
+        cache = TTLCache()
+        runner = CheckRunner([check], config, cache)
+
+        await runner.run("npm", "pkg")
+
+        entry = cache._data.get("npm_blocklist:pkg")
+        assert entry is not None
+        assert entry.ttl == float(config.cache.default_ttl)
+
+
 class TestBackgroundRefresh:
     async def test_near_expiry_triggers_refresh(self) -> None:
         """When a cache hit is near-expiry, runner spawns a background refresh."""

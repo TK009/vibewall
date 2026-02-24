@@ -76,6 +76,21 @@ action = "ask"
         VibewallConfig.load(toml)
 
 
+def test_error_ttl_default() -> None:
+    cfg = VibewallConfig.load(None)
+    assert cfg.cache.error_ttl == 60
+
+
+def test_error_ttl_from_toml(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[cache]
+error_ttl = 30
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.cache.error_ttl == 30
+
+
 def test_disabled_validator() -> None:
     cfg = VibewallConfig.load(None)
     del cfg.validators["npm_downloads"]

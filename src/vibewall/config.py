@@ -71,6 +71,7 @@ class LlmConfig:
 @dataclass
 class CacheConfig:
     default_ttl: int = 3600
+    error_ttl: int = 60
     max_entries: int = 50000
 
 
@@ -117,6 +118,7 @@ class VibewallConfig:
         if "cache" in data:
             cache_data = data["cache"]
             cfg.cache.default_ttl = cache_data.get("default_ttl", cfg.cache.default_ttl)
+            cfg.cache.error_ttl = cache_data.get("error_ttl", cfg.cache.error_ttl)
             cfg.cache.max_entries = cache_data.get("max_entries", cfg.cache.max_entries)
 
         # Notifications config

@@ -393,6 +393,8 @@ class CheckRunner:
         return self._config.cache.default_ttl
 
     def _get_result_ttl(self, check: BaseCheck, result: CheckResult) -> int:
+        if result.status == CheckStatus.ERR:
+            return self._config.cache.error_ttl
         base_ttl = self._get_base_ttl(check.name)
         return check.get_result_ttl(result, base_ttl)
 
