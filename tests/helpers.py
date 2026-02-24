@@ -26,14 +26,6 @@ class StubCheck(BaseCheck):
         self._delay = delay
         self.call_count = 0
 
-    @property
-    def called(self) -> bool:
-        return self.call_count > 0
-
-    @called.setter
-    def called(self, value: bool) -> None:
-        self.call_count = 0 if not value else max(self.call_count, 1)
-
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         self.call_count += 1
         if self._delay:

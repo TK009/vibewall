@@ -64,7 +64,7 @@ class TestCheckRunner:
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
         assert "allowlisted" in pipeline.run_result.reason
-        assert not existence.called
+        assert existence.call_count == 0
 
     @pytest.mark.asyncio
     async def test_fail_with_warn_action_allows(self, runner_config: VibewallConfig) -> None:
@@ -87,11 +87,11 @@ class TestCheckRunner:
         runner = CheckRunner([check], runner_config, cache)
 
         await runner.run("npm", "pkg")
-        assert check.called
+        assert check.call_count == 1
 
-        check.called = False
+        check.call_count = 0
         pipeline2 = await runner.run("npm", "pkg")
-        assert not check.called
+        assert check.call_count == 0
         assert pipeline2.run_result.allowed
 
     @pytest.mark.asyncio
@@ -130,8 +130,8 @@ class TestCheckRunner:
         url_check = StubCheck("url_blocklist", "url")
         runner = CheckRunner([npm_check, url_check], runner_config, TTLCache())
         await runner.run("npm", "lodash")
-        assert npm_check.called
-        assert not url_check.called
+        assert npm_check.call_count > 0
+        assert url_check.call_count == 0
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("action", ["ask-block", "ask-allow"])
@@ -247,8 +247,8 @@ class TestIgnoreAllowlist:
         runner = CheckRunner([allowlist, registry, advisories, downloads], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
-        assert advisories.called
-        assert not downloads.called  # no ignore_allowlist, should be skipped
+        assert advisories.call_count > 0
+        assert downloads.call_count == 0  # no ignore_allowlist, should be skipped
 
     @pytest.mark.asyncio
     async def test_allowlisted_skips_checks_without_ignore_allowlist(self) -> None:
@@ -268,8 +268,8 @@ class TestIgnoreAllowlist:
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
         assert "allowlisted" in pipeline.run_result.reason
-        assert not existence.called
-        assert not age.called
+        assert existence.call_count == 0
+        assert age.call_count == 0
 
     @pytest.mark.asyncio
     async def test_ignore_allowlist_fail_blocks_allowlisted_target(self) -> None:
