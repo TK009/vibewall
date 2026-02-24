@@ -108,5 +108,5 @@ ask_timeout = 70        # seconds; overall timeout for interactive ask prompts
 
 [cache]
 default_ttl = 3600
-error_ttl = 60       # TTL for error results (network failures, timeouts)
+error_ttl = 60       # seconds; TTL for error results (network failures, timeouts)
 max_entries = 50000

@@ -33,6 +33,20 @@ class StubCheck(BaseCheck):
         return self._result
 
 
+class ExplodingCheck(StubCheck):
+    """StubCheck that raises an exception instead of returning a result."""
+
+    def __init__(self, *args, error: Exception | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._error = error or RuntimeError("boom")
+
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
+        self.call_count += 1
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        raise self._error
+
+
 class CustomTTLCheck(StubCheck):
     """StubCheck with a custom get_result_ttl."""
 

@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from helpers import CustomTTLCheck, StubCheck
+from helpers import CustomTTLCheck, ExplodingCheck, StubCheck
 from vibewall.cache.store import TTLCache
 from vibewall.config import ValidatorConfig, VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus
@@ -431,6 +431,38 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
 
+    async def test_refresh_exception_caches_err(self) -> None:
+        """When a background refresh raises, an ERR result replaces the stale entry."""
+        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"))
+        config = VibewallConfig.load(None)
+        config.cache.error_ttl = 20
+        cache = TTLCache()
+        runner = CheckRunner([check], config, cache)
+
+        # Populate cache
+        await runner.run("npm", "pkg")
+        assert check.call_count == 1
+
+        # Make near-expiry to trigger refresh
+        entry = cache._data["npm_blocklist:pkg"]
+        entry.expires_at = time.monotonic() + 1
+        entry.ttl = 100.0
+
+        # Replace check with one that raises
+        exploding = ExplodingCheck("npm_blocklist", "npm")
+        runner._checks["npm_blocklist"] = exploding
+
+        await runner.run("npm", "pkg")
+        await asyncio.sleep(0.05)
+
+        # The refresh should have cached an ERR result
+        new_entry = cache._data.get("npm_blocklist:pkg")
+        assert new_entry is not None
+        raw, display = new_entry.value
+        assert raw.status == CheckStatus.ERR
+        assert new_entry.ttl == 20.0
+
+
 class TestShutdown:
     async def test_shutdown_cancels_tasks(self) -> None:
         check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"), delay=10)
@@ -556,6 +588,42 @@ class TestBackgroundWarnExecution:
 
         pipeline = await runner.run("npm", "pkg")
         assert pipeline.background is None
+
+    async def test_bg_exception_caches_err_with_error_ttl(self) -> None:
+        """When a background check raises, an ERR result is cached with error_ttl."""
+        downloads = ExplodingCheck("npm_downloads", "npm", delay=0.05)
+        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        config = VibewallConfig.load(None)
+        config.cache.error_ttl = 25
+        cache = TTLCache()
+        runner = CheckRunner([blocklist, downloads], config, cache)
+
+        pipeline = await runner.run("npm", "pkg")
+        assert pipeline.background is not None
+        await asyncio.wait_for(pipeline.background.wait(), timeout=1)
+
+        entry = cache._data.get("npm_downloads:pkg")
+        assert entry is not None
+        raw, display = entry.value
+        assert raw.status == CheckStatus.ERR
+        assert entry.ttl == 25.0
+
+    async def test_bg_exception_notifies_on_check_done(self) -> None:
+        """When a background check raises, on_check_done is still called with an ERR result."""
+        downloads = ExplodingCheck("npm_downloads", "npm", delay=0.05)
+        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        config = VibewallConfig.load(None)
+        runner = CheckRunner([blocklist, downloads], config, TTLCache())
+
+        notified = {}
+        def on_done(name, result):
+            notified[name] = result
+
+        pipeline = await runner.run("npm", "pkg", on_check_done=on_done)
+        await asyncio.wait_for(pipeline.background.wait(), timeout=1)
+
+        assert "npm_downloads" in notified
+        assert notified["npm_downloads"].status == CheckStatus.ERR
 
     async def test_cached_bg_check_not_spawned(self) -> None:
         """When a background-eligible check is cached, it's served from cache normally."""

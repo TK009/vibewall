@@ -440,7 +440,11 @@ class CheckRunner:
                 self._notify(on_check_done, check.name, display)
             except Exception:
                 logger.exception("background_check_error", check=check.name, target=target)
-                self._notify(on_check_done, check.name, None)
+                err = CheckResult.err(f"{check.name} raised an exception")
+                display = maybe_downgrade(check.name, err, self._config)
+                ttl = self._get_result_ttl(check, err)
+                self._cache.set(f"{check.name}:{target}", (err, display), ttl)
+                self._notify(on_check_done, check.name, display)
             finally:
                 bg_counter.dec()
 
@@ -467,6 +471,10 @@ class CheckRunner:
                 self._cache.set(cache_key, (result, display), ttl)
             except Exception:
                 logger.exception("background_refresh_error", check=check.name, target=target)
+                err = CheckResult.err(f"{check.name} raised an exception")
+                display = maybe_downgrade(check.name, err, self._config)
+                ttl = self._get_result_ttl(check, err)
+                self._cache.set(cache_key, (err, display), ttl)
             finally:
                 self._refreshing.discard(cache_key)
 

@@ -22,7 +22,11 @@ class BaseCheck(ABC):
             )
 
     def get_result_ttl(self, result: CheckResult, default_ttl: int) -> int:
-        """Override for result-aware TTL. Default: return default_ttl."""
+        """Override for result-aware TTL. Default: return default_ttl.
+
+        Note: ERR results are handled by the runner (using cache.error_ttl)
+        before this method is called.
+        """
         return default_ttl
 
     @abstractmethod
