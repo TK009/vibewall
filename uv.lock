@@ -110,6 +110,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiosqlite"
+version = "0.22.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz", hash = "sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650", size = 14821, upload-time = "2025-12-23T19:25:43.997Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl", hash = "sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb", size = 17405, upload-time = "2025-12-23T19:25:42.139Z" },
+]
+
+[[package]]
 name = "argon2-cffi"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -612,11 +621,9 @@ wheels = [
 [[package]]
 name = "mitmproxy-linux"
 version = "0.12.9"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2f/f2/8c776f9bf013752c4521fc8382efc7b55cb238cea69b7963200b4f8da293/mitmproxy_linux-0.12.9.tar.gz", hash = "sha256:94b10fee02aa42287739623cef921e1a53955005d45c9e2fa309ae9f0bf8d37d", size = 1299779, upload-time = "2026-01-30T14:54:13.898Z" }
+source = { registry = "wheels" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/6e/10a2fbcf564e18254293dc7118dc4ec72f3e5897509d7b4f804ab23df5cd/mitmproxy_linux-0.12.9-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b4413e27c692f30036ad6d73432826e728ede026fac8e51651d0c545dd0177f2", size = 987838, upload-time = "2026-01-30T14:53:59.602Z" },
-    { url = "https://files.pythonhosted.org/packages/20/c5/2eeb523019b1ad84ec659fc41b007cbc90ac99e2451c4e7ba7a28d910b04/mitmproxy_linux-0.12.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ee842865a05f69196004ddcb29d50af0602361d9d6acee04f370f7e01c3674e8", size = 1067258, upload-time = "2026-01-30T14:54:01.872Z" },
+    { path = "mitmproxy_linux-0.12.9-py3-none-musllinux_1_2_x86_64.whl" },
 ]
 
 [[package]]
@@ -1081,6 +1088,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "aiosqlite" },
     { name = "click" },
     { name = "mitmproxy" },
     { name = "python-whois" },
@@ -1101,6 +1109,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp" },
     { name = "aioresponses", marker = "extra == 'dev'" },
+    { name = "aiosqlite" },
     { name = "click" },
     { name = "mitmproxy", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'" },

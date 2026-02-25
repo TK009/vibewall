@@ -9,7 +9,7 @@ import structlog
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
-from vibewall.cache.store import TTLCache
+from vibewall.cache.store import SQLiteCache
 from vibewall.config import VibewallConfig
 from vibewall.console import ConsoleDisplay
 from vibewall.notifications import Notifier
@@ -78,7 +78,12 @@ def _build_enabled_checks(config: VibewallConfig, runner: CheckRunner) -> dict[s
 
 
 async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
-    cache = TTLCache(max_entries=config.cache.max_entries)
+    cache = SQLiteCache(
+        db_path=config.cache.db_path,
+        max_entries=config.cache.max_entries,
+        cleanup_interval=config.cache.cleanup_interval,
+    )
+    await cache.open()
 
     # Load allow/block lists
     npm_lists = AllowBlockList(
@@ -156,4 +161,5 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     finally:
         display.print_stats()
         await runner.shutdown()
+        await cache.close()
         await session.close()

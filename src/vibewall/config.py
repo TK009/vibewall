@@ -73,6 +73,8 @@ class CacheConfig:
     default_ttl: int = 3600
     error_ttl: int = 60
     max_entries: int = 50000
+    db_path: str = "~/.vibewall/cache.db"
+    cleanup_interval: int = 300
 
 
 @dataclass
@@ -120,6 +122,8 @@ class VibewallConfig:
             cfg.cache.default_ttl = cache_data.get("default_ttl", cfg.cache.default_ttl)
             cfg.cache.error_ttl = cache_data.get("error_ttl", cfg.cache.error_ttl)
             cfg.cache.max_entries = cache_data.get("max_entries", cfg.cache.max_entries)
+            cfg.cache.db_path = cache_data.get("db_path", cfg.cache.db_path)
+            cfg.cache.cleanup_interval = cache_data.get("cleanup_interval", cfg.cache.cleanup_interval)
 
         # Notifications config
         if "notifications" in data:

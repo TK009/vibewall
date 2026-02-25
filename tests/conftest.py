@@ -5,14 +5,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from vibewall.cache.store import TTLCache
+from vibewall.cache.store import SQLiteCache
 from vibewall.config import VibewallConfig
 from vibewall.validators.allowlist import AllowBlockList
 
 
 @pytest.fixture
-def cache() -> TTLCache:
-    return TTLCache()
+async def cache() -> SQLiteCache:
+    c = SQLiteCache(db_path=":memory:")
+    await c.open()
+    yield c
+    await c.close()
 
 
 @pytest.fixture

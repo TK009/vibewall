@@ -110,3 +110,5 @@ ask_timeout = 70        # seconds; overall timeout for interactive ask prompts
 default_ttl = 3600
 error_ttl = 60       # seconds; TTL for error results (network failures, timeouts)
 max_entries = 50000
+# db_path = "~/.vibewall/cache.db"    # SQLite database path
+# cleanup_interval = 300              # seconds; periodic expired-entry cleanup

@@ -391,7 +391,7 @@ class TestBackgroundRefresh:
 
         # Manually expire the entry to near-expiry (< 20% remaining)
         entry = cache._data["npm_blocklist:pkg"]
-        entry.expires_at = time.monotonic() + 1  # very close to expiring
+        entry.expires_at = time.time() + 1  # very close to expiring
         entry.ttl = 100.0  # original TTL was 100s
 
         # Second run should get cache hit but schedule refresh
@@ -416,7 +416,7 @@ class TestBackgroundRefresh:
 
         # Make near-expiry
         entry = cache._data["npm_blocklist:pkg"]
-        entry.expires_at = time.monotonic() + 1
+        entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
         # Two concurrent runs
@@ -445,7 +445,7 @@ class TestBackgroundRefresh:
 
         # Make near-expiry to trigger refresh
         entry = cache._data["npm_blocklist:pkg"]
-        entry.expires_at = time.monotonic() + 1
+        entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
         # Replace check with one that raises
@@ -473,7 +473,7 @@ class TestShutdown:
         # Populate cache, then make near-expiry to trigger refresh
         await runner.run("npm", "pkg")
         entry = cache._data["npm_blocklist:pkg"]
-        entry.expires_at = time.monotonic() + 1
+        entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
         check._delay = 10  # slow refresh
