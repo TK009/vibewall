@@ -63,10 +63,6 @@ def merge(source: str, target: str) -> None:
     target_resolved = str(Path(target).expanduser())
     source_resolved = str(Path(source).expanduser())
 
-    if not Path(target_resolved).exists():
-        click.echo(f"Error: target database '{target_resolved}' does not exist.", err=True)
-        raise SystemExit(1)
-
     count = merge_databases(target_resolved, source_resolved)
     click.echo(f"Merged {count} entries from {source} into {target_resolved}")
 

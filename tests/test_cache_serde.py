@@ -42,7 +42,7 @@ class TestSerdeRoundTrip:
         pair = (raw_cr, display_cr)
         serialized = serialize(pair)
         restored = deserialize(serialized)
-        assert isinstance(restored, list)  # JSON tuples become lists
+        assert isinstance(restored, tuple)
         assert len(restored) == 2
         assert isinstance(restored[0], CheckResult)
         assert isinstance(restored[1], CheckResult)

@@ -118,3 +118,15 @@ class TestMerge:
         _insert(target, "a", "val", 3600, time.time())
         count = merge_databases(target, source)
         assert count == 0
+
+    def test_merge_creates_target_if_missing(self, tmp_path) -> None:
+        target = str(tmp_path / "newdir" / "target.db")
+        source = str(tmp_path / "source.db")
+        _init_db(source)
+
+        now = time.time()
+        _insert(source, "key", "val", 3600, now)
+
+        count = merge_databases(target, source)
+        assert count == 1
+        assert _get(target, "key") is not None

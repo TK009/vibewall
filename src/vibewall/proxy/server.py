@@ -138,9 +138,13 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
         notifier=notifier if config.notifications.enabled else None,
     )
 
+    confdir = Path.home() / ".vibewall"
+    confdir.mkdir(parents=True, exist_ok=True)
+
     opts = options.Options(
         listen_host=config.host,
         listen_port=config.port,
+        confdir=str(confdir),
     )
     master = DumpMaster(opts)
     master.addons.add(addon)
@@ -149,7 +153,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     opts.update(flow_detail=0)
 
     # Copy CA cert to shared volume if it exists
-    ca_cert = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+    ca_cert = confdir / "mitmproxy-ca-cert.pem"
     cert_dest = Path("/certs/mitmproxy-ca-cert.pem")
     if cert_dest.parent.exists() and ca_cert.exists():
         shutil.copy2(ca_cert, cert_dest)

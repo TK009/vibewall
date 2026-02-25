@@ -3,13 +3,33 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from vibewall.cache.serde import deserialize, serialize
 
 logger = logging.getLogger(__name__)
+
+_FLUSH_INTERVAL = 0.5  # seconds between batch flushes
+
+
+class _Op(Enum):
+    SET = "set"
+    DELETE = "delete"
+    CLEAR = "clear"
+
+
+@dataclass
+class _WriteOp:
+    op: _Op
+    key: str = ""
+    value: str = ""
+    ttl: float = 0.0
+    expires_at: float = 0.0
+    updated_at: float = 0.0
 
 
 @dataclass
@@ -25,7 +45,7 @@ class SQLiteCache:
 
     All public get/set/delete/clear methods are synchronous (matching the
     old TTLCache API) so callers in runner.py need zero changes.  SQLite
-    writes are fire-and-forget background tasks.
+    writes are batched and flushed periodically in the background.
     """
 
     _SCHEMA_VERSION = "1"
@@ -42,7 +62,9 @@ class SQLiteCache:
         self._data: dict[str, _Entry] = {}
         self._db: Any = None  # aiosqlite connection
         self._cleanup_task: asyncio.Task | None = None  # type: ignore[type-arg]
+        self._flush_task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._write_queue: deque[_WriteOp] = deque()
 
     # ------------------------------------------------------------------
     # Async lifecycle
@@ -63,8 +85,16 @@ class SQLiteCache:
         await self._warm_l1()
         self._loop = asyncio.get_running_loop()
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        self._flush_task = asyncio.create_task(self._flush_loop())
 
     async def close(self) -> None:
+        if self._flush_task is not None:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+            self._flush_task = None
         if self._cleanup_task is not None:
             self._cleanup_task.cancel()
             try:
@@ -72,6 +102,8 @@ class SQLiteCache:
             except asyncio.CancelledError:
                 pass
             self._cleanup_task = None
+        # Drain any remaining queued writes
+        await self._flush_writes()
         if self._db is not None:
             await self._db.close()
             self._db = None
@@ -86,7 +118,7 @@ class SQLiteCache:
             return None
         if time.time() > entry.expires_at:
             del self._data[key]
-            self._bg_delete(key)
+            self._enqueue_delete(key)
             return None
         return entry.value
 
@@ -97,7 +129,7 @@ class SQLiteCache:
         now = time.time()
         if now > entry.expires_at:
             del self._data[key]
-            self._bg_delete(key)
+            self._enqueue_delete(key)
             return None
         remaining = entry.expires_at - now
         near_expiry = entry.ttl > 0 and remaining < entry.ttl * 0.2
@@ -113,15 +145,16 @@ class SQLiteCache:
         self._data[key] = _Entry(
             value=value, expires_at=expires_at, ttl=float(ttl), updated_at=now,
         )
-        self._bg_set(key, value, float(ttl), expires_at, now)
+        self._enqueue_set(key, value, float(ttl), expires_at, now)
 
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
-        self._bg_delete(key)
+        self._enqueue_delete(key)
 
     def clear(self) -> None:
         self._data.clear()
-        self._bg_clear()
+        self._write_queue.clear()
+        self._write_queue.append(_WriteOp(op=_Op.CLEAR))
 
     def cleanup(self) -> int:
         now = time.time()
@@ -141,57 +174,48 @@ class SQLiteCache:
         for k, _ in by_expiry[:count]:
             del self._data[k]
 
-    def _fire_and_forget(self, coro: Any) -> None:
-        if self._db is None or self._loop is None:
-            return
-        try:
-            task = self._loop.create_task(coro)
-            task.add_done_callback(lambda t: _log_bg_error(t))
-        except RuntimeError:
-            pass  # loop closed
-
-    def _bg_set(
+    def _enqueue_set(
         self, key: str, value: Any, ttl: float, expires_at: float, updated_at: float,
     ) -> None:
         if self._db is None:
             return
+        blob = serialize(value)
+        self._write_queue.append(_WriteOp(
+            op=_Op.SET, key=key, value=blob,
+            ttl=ttl, expires_at=expires_at, updated_at=updated_at,
+        ))
 
-        async def _do() -> None:
-            if self._db is None:
-                return
-            blob = serialize(value)
-            await self._db.execute(
-                "INSERT OR REPLACE INTO cache_entries "
-                "(key, value, ttl, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (key, blob, ttl, expires_at, updated_at),
-            )
-            await self._db.commit()
-
-        self._fire_and_forget(_do())
-
-    def _bg_delete(self, key: str) -> None:
+    def _enqueue_delete(self, key: str) -> None:
         if self._db is None:
             return
+        self._write_queue.append(_WriteOp(op=_Op.DELETE, key=key))
 
-        async def _do() -> None:
-            if self._db is None:
-                return
-            await self._db.execute("DELETE FROM cache_entries WHERE key = ?", (key,))
-            await self._db.commit()
-
-        self._fire_and_forget(_do())
-
-    def _bg_clear(self) -> None:
-        if self._db is None:
+    async def _flush_writes(self) -> None:
+        if self._db is None or not self._write_queue:
             return
-
-        async def _do() -> None:
-            if self._db is None:
-                return
-            await self._db.execute("DELETE FROM cache_entries")
+        try:
+            while self._write_queue:
+                op = self._write_queue.popleft()
+                if op.op is _Op.SET:
+                    await self._db.execute(
+                        "INSERT OR REPLACE INTO cache_entries "
+                        "(key, value, ttl, expires_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                        (op.key, op.value, op.ttl, op.expires_at, op.updated_at),
+                    )
+                elif op.op is _Op.DELETE:
+                    await self._db.execute(
+                        "DELETE FROM cache_entries WHERE key = ?", (op.key,),
+                    )
+                elif op.op is _Op.CLEAR:
+                    await self._db.execute("DELETE FROM cache_entries")
             await self._db.commit()
+        except Exception:
+            logger.exception("cache_flush_error")
 
-        self._fire_and_forget(_do())
+    async def _flush_loop(self) -> None:
+        while True:
+            await asyncio.sleep(_FLUSH_INTERVAL)
+            await self._flush_writes()
 
     # ------------------------------------------------------------------
     # Migration & warm-up
@@ -203,6 +227,17 @@ class SQLiteCache:
             "CREATE TABLE IF NOT EXISTS cache_meta "
             "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
         )
+        # Check existing schema version
+        cursor = await self._db.execute(
+            "SELECT value FROM cache_meta WHERE key = 'schema_version'"
+        )
+        row = await cursor.fetchone()
+        existing_version = row[0] if row else None
+
+        if existing_version == self._SCHEMA_VERSION:
+            return
+
+        # Fresh database or needs migration
         await self._db.execute(
             "CREATE TABLE IF NOT EXISTS cache_entries ("
             "  key TEXT PRIMARY KEY,"
@@ -216,7 +251,7 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_expires_at "
             "ON cache_entries(expires_at)"
         )
-        # Set schema version
+        # Future migrations would go here, keyed on existing_version
         await self._db.execute(
             "INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)",
             ("schema_version", self._SCHEMA_VERSION),
@@ -268,14 +303,6 @@ class SQLiteCache:
                     await self._db.commit()
                 except Exception:
                     logger.exception("cache_cleanup_error")
-
-
-def _log_bg_error(task: asyncio.Task) -> None:  # type: ignore[type-arg]
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error("cache_bg_write_error: %s", exc)
 
 
 # Backwards-compatible alias

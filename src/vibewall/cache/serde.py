@@ -8,11 +8,35 @@ from vibewall.models import CheckResult, CheckStatus
 
 
 def serialize(value: Any) -> str:
-    return json.dumps(value, default=_encode)
+    wrapped = _wrap(value)
+    return json.dumps(wrapped, default=_encode)
 
 
 def deserialize(raw: str) -> Any:
-    return json.loads(raw, object_hook=_decode)
+    decoded = json.loads(raw, object_hook=_decode)
+    return _unwrap(decoded)
+
+
+def _wrap(obj: Any) -> Any:
+    """Recursively wrap tuples and lists so they survive JSON round-trip."""
+    if isinstance(obj, tuple):
+        return {"__type__": "tuple", "items": [_wrap(item) for item in obj]}
+    if isinstance(obj, list):
+        return {"__type__": "list", "items": [_wrap(item) for item in obj]}
+    return obj
+
+
+def _unwrap(obj: Any) -> Any:
+    """Recursively unwrap tagged tuples/lists after JSON decode."""
+    if isinstance(obj, dict):
+        t = obj.get("__type__")
+        if t == "tuple":
+            return tuple(_unwrap(item) for item in obj["items"])
+        if t == "list":
+            return [_unwrap(item) for item in obj["items"]]
+    if isinstance(obj, list):
+        return [_unwrap(item) for item in obj]
+    return obj
 
 
 def _encode(obj: object) -> Any:

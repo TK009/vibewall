@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import patch
 
@@ -200,9 +201,6 @@ class TestPersistence:
         await c1.open()
         c1.set("key1", "value1", ttl=3600)
         c1.set("key2", {"nested": True}, ttl=3600)
-        # Let background writes complete
-        import asyncio
-        await asyncio.sleep(0.1)
         await c1.close()
 
         c2 = SQLiteCache(db_path=db)
@@ -214,22 +212,20 @@ class TestPersistence:
     async def test_expired_entries_not_loaded(self, tmp_path) -> None:
         db = str(tmp_path / "expire.db")
 
+        now = time.time()
         c1 = SQLiteCache(db_path=db)
         await c1.open()
-        c1.set("short", "gone", ttl=1)
-        c1.set("long", "here", ttl=3600)
-        import asyncio
-        await asyncio.sleep(0.1)
+        with patch("vibewall.cache.store.time.time", return_value=now):
+            c1.set("short", "gone", ttl=1)
+            c1.set("long", "here", ttl=3600)
         await c1.close()
 
-        # Wait for the short TTL to expire
-        import time
-        time.sleep(1.1)
-
+        # Simulate time passing beyond the short TTL
         c2 = SQLiteCache(db_path=db)
-        await c2.open()
-        assert c2.get("short") is None
-        assert c2.get("long") == "here"
+        with patch("vibewall.cache.store.time.time", return_value=now + 5):
+            await c2.open()
+            assert c2.get("short") is None
+            assert c2.get("long") == "here"
         await c2.close()
 
 
@@ -245,16 +241,14 @@ class TestCheckResultPersistence:
         c1 = SQLiteCache(db_path=db)
         await c1.open()
         c1.set("npm_registry:test", pair, ttl=3600)
-        import asyncio
-        await asyncio.sleep(0.1)
         await c1.close()
 
         c2 = SQLiteCache(db_path=db)
         await c2.open()
         result = c2.get("npm_registry:test")
         assert result is not None
-        # JSON round-trip turns tuples into lists
-        r0, r1 = result[0], result[1]
+        assert isinstance(result, tuple)
+        r0, r1 = result
         assert isinstance(r0, CheckResult)
         assert r0.status == CheckStatus.OK
         assert r0.data["registry_data"] == {"name": "test"}
