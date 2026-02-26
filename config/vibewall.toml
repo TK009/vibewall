@@ -2,10 +2,7 @@ port = 7777
 host = "0.0.0.0"
 pipeline_timeout = 120  # seconds; set high enough for interactive "ask" prompts
 
-[validators.npm_blocklist]
-action = "block"
-
-[validators.npm_allowlist]
+[validators.npm_rules]
 action = "block"
 
 [validators.npm_registry]
@@ -38,10 +35,7 @@ severity_high = "warn"
 severity_critical = "ask-block"
 cache_ttl = 3600
 
-[validators.url_blocklist]
-action = "block"
-
-[validators.url_allowlist]
+[validators.url_rules]
 action = "block"
 
 [validators.url_dns]
@@ -52,10 +46,7 @@ action = "block"
 min_days = 30
 cache_ttl = 604800
 
-[validators.pypi_blocklist]
-action = "block"
-
-[validators.pypi_allowlist]
+[validators.pypi_rules]
 action = "block"
 
 [validators.pypi_registry]

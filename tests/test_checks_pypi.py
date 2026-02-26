@@ -6,9 +6,8 @@ import pytest
 
 from helpers import _simple_response
 from vibewall.models import CheckContext, CheckResult, CheckStatus
-from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.checks.pypi_blocklist import PypiBlocklistCheck
-from vibewall.validators.checks.pypi_allowlist import PypiAllowlistCheck
+from vibewall.validators.rules import RuleSet
+from vibewall.validators.checks.pypi_rules import PypiRulesCheck
 from vibewall.validators.checks.pypi_registry import PypiRegistryCheck
 from vibewall.validators.checks.pypi_existence import PypiExistenceCheck
 from vibewall.validators.checks.pypi_typosquat import PypiTyposquatCheck
@@ -17,28 +16,26 @@ from vibewall.validators.checks.pypi_downloads import PypiDownloadsCheck
 from vibewall.validators.checks.pypi_advisories import PypiAdvisoriesCheck
 
 
-class TestPypiBlocklist:
-    async def test_blocked(self, pypi_lists: AllowBlockList) -> None:
-        check = PypiBlocklistCheck(pypi_lists=pypi_lists)
+class TestPypiRules:
+    async def test_blocked(self, ruleset: RuleSet) -> None:
+        check = PypiRulesCheck(ruleset=ruleset)
         result = await check.run("evil-package", CheckContext())
         assert result.status == CheckStatus.FAIL
-        assert "blocklisted" in result.reason
+        assert "block" in result.reason
 
-    async def test_not_blocked(self, pypi_lists: AllowBlockList) -> None:
-        check = PypiBlocklistCheck(pypi_lists=pypi_lists)
+    async def test_not_blocked(self, ruleset: RuleSet) -> None:
+        check = PypiRulesCheck(ruleset=ruleset)
         result = await check.run("safe-package", CheckContext())
         assert result.status == CheckStatus.OK
 
-
-class TestPypiAllowlist:
-    async def test_allowlisted(self, pypi_lists: AllowBlockList) -> None:
-        check = PypiAllowlistCheck(pypi_lists=pypi_lists)
+    async def test_allowlisted(self, ruleset: RuleSet) -> None:
+        check = PypiRulesCheck(ruleset=ruleset)
         result = await check.run("requests", CheckContext())
         assert result.status == CheckStatus.OK
         assert result.data["allowlisted"] is True
 
-    async def test_not_allowlisted(self, pypi_lists: AllowBlockList) -> None:
-        check = PypiAllowlistCheck(pypi_lists=pypi_lists)
+    async def test_not_allowlisted(self, ruleset: RuleSet) -> None:
+        check = PypiRulesCheck(ruleset=ruleset)
         result = await check.run("unknown-pkg", CheckContext())
         assert result.status == CheckStatus.OK
         assert result.data["allowlisted"] is False
@@ -93,28 +90,28 @@ class TestPypiExistence:
 
 
 class TestPypiTyposquat:
-    async def test_typosquat_detected(self, pypi_lists: AllowBlockList) -> None:
+    async def test_typosquat_detected(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("pypi_registry", CheckResult.ok("ok", registry_data={}, status_code=200))
-        ctx.add("pypi_allowlist", CheckResult.ok("not allowlisted", allowlisted=False))
-        check = PypiTyposquatCheck(pypi_lists=pypi_lists, max_distance=2)
+        ctx.add("pypi_rules", CheckResult.ok("not allowlisted", allowlisted=False))
+        check = PypiTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("requets", ctx)
         assert result.status == CheckStatus.FAIL
         assert "typosquat" in result.reason
 
-    async def test_short_name_skipped(self, pypi_lists: AllowBlockList) -> None:
+    async def test_short_name_skipped(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("pypi_registry", CheckResult.ok("ok"))
-        ctx.add("pypi_allowlist", CheckResult.ok("not allowlisted", allowlisted=False))
-        check = PypiTyposquatCheck(pypi_lists=pypi_lists, max_distance=2)
+        ctx.add("pypi_rules", CheckResult.ok("not allowlisted", allowlisted=False))
+        check = PypiTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("flsk", ctx)
         assert result.status == CheckStatus.OK
 
-    async def test_allowlisted_skipped(self, pypi_lists: AllowBlockList) -> None:
+    async def test_allowlisted_skipped(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("pypi_registry", CheckResult.ok("ok"))
-        ctx.add("pypi_allowlist", CheckResult.ok("allowlisted", allowlisted=True))
-        check = PypiTyposquatCheck(pypi_lists=pypi_lists, max_distance=2)
+        ctx.add("pypi_rules", CheckResult.ok("allowlisted", allowlisted=True))
+        check = PypiTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("requets", ctx)
         assert result.status == CheckStatus.OK
 

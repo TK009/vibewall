@@ -49,9 +49,9 @@ OnCheckDone = Callable[[str, CheckResult | None], None] | None
 OnAsk = Callable[[str, str, CheckResult], Awaitable[bool]] | None
 
 # Checks whose FAIL result should short-circuit (stop further checks)
-_BLOCKLIST_CHECKS = {"npm_blocklist", "url_blocklist", "pypi_blocklist"}
+_BLOCKLIST_CHECKS = {"npm_rules", "pypi_rules", "url_rules"}
 # Checks whose OK result should short-circuit (target is trusted)
-_ALLOWLIST_CHECKS = {"npm_allowlist", "url_allowlist", "pypi_allowlist"}
+_ALLOWLIST_CHECKS = {"npm_rules", "pypi_rules", "url_rules"}
 
 class CheckRunner:
     def __init__(
@@ -85,6 +85,7 @@ class CheckRunner:
         on_ask: OnAsk = None,
         *,
         version: str | None = None,
+        method: str | None = None,
         check_names: set[str] | None = None,
     ) -> PipelineResult:
         enabled = self._get_enabled_checks(scope)
@@ -101,7 +102,8 @@ class CheckRunner:
         try:
             return await asyncio.wait_for(
                 self._run_checks(
-                    scope, enabled, target, on_check_done, on_ask, version=version,
+                    scope, enabled, target, on_check_done, on_ask,
+                    version=version, method=method,
                 ),
                 timeout=timeout,
             )
@@ -125,13 +127,14 @@ class CheckRunner:
         on_ask: OnAsk = None,
         *,
         version: str | None = None,
+        method: str | None = None,
     ) -> PipelineResult:
         all_enabled_names = {c.name for c in enabled}
         layers = self._topological_layers(enabled)
         bg_eligible = self._get_background_eligible(enabled)
         # context keeps raw results (dependencies need original FAIL status),
         # all_results keeps display results (FAIL downgraded to SUS for warns/asks).
-        context = CheckContext(version=version)
+        context = CheckContext(version=version, method=method)
         all_results: list[tuple[str, CheckResult]] = []
         completed_names: set[str] = set()
         bg_event: asyncio.Event | None = None

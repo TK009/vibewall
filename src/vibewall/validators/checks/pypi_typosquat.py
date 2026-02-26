@@ -3,8 +3,8 @@ from __future__ import annotations
 from rapidfuzz.distance import Levenshtein
 
 from vibewall.models import CheckContext, CheckResult
-from vibewall.validators.allowlist import AllowBlockList
 from vibewall.validators.base import BaseCheck
+from vibewall.validators.rules import RuleSet
 
 _MIN_TYPOSQUAT_NAME_LEN = 6
 
@@ -12,18 +12,18 @@ _MIN_TYPOSQUAT_NAME_LEN = 6
 class PypiTyposquatCheck(BaseCheck):
     name = "pypi_typosquat"
     abbrev = "TYP"
-    depends_on = ["pypi_registry", "pypi_allowlist"]
+    depends_on = ["pypi_registry", "pypi_rules"]
     scope = "pypi"
     default_action = "warn"
 
-    def __init__(self, pypi_lists: AllowBlockList, max_distance: int = 2, **kwargs) -> None:
-        self._lists = pypi_lists
+    def __init__(self, ruleset: RuleSet, max_distance: int = 2, **kwargs) -> None:
+        self._ruleset = ruleset
         self._max_distance = max_distance
 
     async def run(self, target: str, context: CheckContext) -> CheckResult:
         # If allowlisted, skip typosquat check
-        allowlist_data = context.data("pypi_allowlist")
-        if allowlist_data.get("allowlisted"):
+        rules_data = context.data("pypi_rules")
+        if rules_data.get("allowlisted"):
             return CheckResult.ok("allowlisted, skipping typosquat check")
 
         # Skip short names — edit distance 2 from a 3-4 char name covers too
@@ -33,7 +33,7 @@ class PypiTyposquatCheck(BaseCheck):
                 f"name too short ({len(target)} chars) for typosquat check"
             )
 
-        for known in self._lists.allowlist:
+        for known in self._ruleset.allowlisted_names("pypi"):
             if known == target:
                 continue
             dist = Levenshtein.distance(

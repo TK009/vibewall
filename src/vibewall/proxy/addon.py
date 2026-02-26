@@ -63,7 +63,8 @@ class VibewallAddon:
                 display_target = f"{name}@{version}"
                 result = await self._run_with_display(
                     flow, "npm", display_target,
-                    version=version, check_names={"npm_advisories"},
+                    version=version, method=flow.request.method,
+                    check_names={"npm_advisories"},
                 )
                 self._handle_result(flow, result, "npm", display_target)
                 return
@@ -73,6 +74,7 @@ class VibewallAddon:
             if package_name:
                 result = await self._run_with_display(
                     flow, "npm", package_name,
+                    method=flow.request.method,
                     check_names_exclude={"npm_advisories"},
                 )
                 self._handle_result(flow, result, "npm", package_name)
@@ -86,7 +88,8 @@ class VibewallAddon:
                 display_target = f"{name}@{version}"
                 result = await self._run_with_display(
                     flow, "pypi", display_target,
-                    version=version, check_names={"pypi_advisories"},
+                    version=version, method=flow.request.method,
+                    check_names={"pypi_advisories"},
                 )
                 self._handle_result(flow, result, "pypi", display_target)
                 return
@@ -97,6 +100,7 @@ class VibewallAddon:
             if package_name:
                 result = await self._run_with_display(
                     flow, "pypi", package_name,
+                    method=flow.request.method,
                     check_names_exclude={"pypi_advisories"},
                 )
                 self._handle_result(flow, result, "pypi", package_name)
@@ -105,7 +109,7 @@ class VibewallAddon:
         # Route other URLs through URL checks
         has_url_checks = bool(self._runner.get_enabled_check_names("url"))
         if has_url_checks:
-            result = await self._run_with_display(flow, "url", url)
+            result = await self._run_with_display(flow, "url", url, method=flow.request.method)
             self._handle_result(flow, result, "url", url)
 
     def response(self, flow: http.HTTPFlow) -> None:
@@ -141,6 +145,7 @@ class VibewallAddon:
         target: str,
         *,
         version: str | None = None,
+        method: str | None = None,
         check_names: set[str] | None = None,
         check_names_exclude: set[str] | None = None,
     ) -> RunResult:
@@ -153,7 +158,8 @@ class VibewallAddon:
 
         if self._display is None:
             pipeline = await self._runner.run(
-                scope, target, version=version, check_names=effective_names,
+                scope, target, version=version, method=method,
+                check_names=effective_names,
             )
             return pipeline.run_result
 
@@ -165,6 +171,7 @@ class VibewallAddon:
             on_check_done=lambda name, r: self._display.update_check(req_id, name, r),
             on_ask=self._display.prompt_ask,
             version=version,
+            method=method,
             check_names=effective_names,
         )
         result = pipeline.run_result

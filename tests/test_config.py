@@ -9,16 +9,16 @@ from vibewall.config import VibewallConfig, ValidatorConfig
 
 def test_default_config_has_all_validators() -> None:
     cfg = VibewallConfig.load(None)
-    assert "npm_blocklist" in cfg.validators
+    assert "npm_rules" in cfg.validators
     assert "npm_registry" in cfg.validators
     assert "url_dns" in cfg.validators
-    assert len(cfg.validators) == 20
+    assert len(cfg.validators) == 17
 
 
 def test_load_nonexistent_returns_defaults() -> None:
     cfg = VibewallConfig.load(Path("/nonexistent/path.toml"))
     assert cfg.port == 7777
-    assert len(cfg.validators) == 20
+    assert len(cfg.validators) == 17
 
 
 def test_load_toml_with_validators(tmp_path: Path) -> None:
@@ -26,7 +26,7 @@ def test_load_toml_with_validators(tmp_path: Path) -> None:
     toml.write_text("""
 port = 9999
 
-[validators.npm_blocklist]
+[validators.npm_rules]
 action = "block"
 
 [validators.npm_registry]
@@ -48,7 +48,7 @@ max_entries = 100
 def test_invalid_action_raises(tmp_path: Path) -> None:
     toml = tmp_path / "test.toml"
     toml.write_text("""
-[validators.npm_blocklist]
+[validators.npm_rules]
 action = "invalid"
 """)
     with pytest.raises(ValueError, match="invalid action"):
@@ -69,7 +69,7 @@ max_distance = 5
 def test_legacy_ask_action_gives_helpful_error(tmp_path: Path) -> None:
     toml = tmp_path / "test.toml"
     toml.write_text("""
-[validators.npm_blocklist]
+[validators.npm_rules]
 action = "ask"
 """)
     with pytest.raises(ValueError, match="use 'ask-allow' or 'ask-block' instead"):

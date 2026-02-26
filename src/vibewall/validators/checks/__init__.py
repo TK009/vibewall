@@ -3,20 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from vibewall.validators.base import BaseCheck
-from vibewall.validators.checks.npm_blocklist import NpmBlocklistCheck
-from vibewall.validators.checks.npm_allowlist import NpmAllowlistCheck
+from vibewall.validators.checks.npm_rules import NpmRulesCheck
 from vibewall.validators.checks.npm_registry import NpmRegistryCheck
 from vibewall.validators.checks.npm_existence import NpmExistenceCheck
 from vibewall.validators.checks.npm_typosquat import NpmTyposquatCheck
 from vibewall.validators.checks.npm_age import NpmAgeCheck
 from vibewall.validators.checks.npm_downloads import NpmDownloadsCheck
 from vibewall.validators.checks.npm_advisories import NpmAdvisoriesCheck
-from vibewall.validators.checks.url_blocklist import UrlBlocklistCheck
-from vibewall.validators.checks.url_allowlist import UrlAllowlistCheck
+from vibewall.validators.checks.url_rules import UrlRulesCheck
 from vibewall.validators.checks.url_dns import UrlDnsCheck
 from vibewall.validators.checks.url_domain_age import UrlDomainAgeCheck
-from vibewall.validators.checks.pypi_blocklist import PypiBlocklistCheck
-from vibewall.validators.checks.pypi_allowlist import PypiAllowlistCheck
+from vibewall.validators.checks.pypi_rules import PypiRulesCheck
 from vibewall.validators.checks.pypi_registry import PypiRegistryCheck
 from vibewall.validators.checks.pypi_existence import PypiExistenceCheck
 from vibewall.validators.checks.pypi_typosquat import PypiTyposquatCheck
@@ -25,20 +22,17 @@ from vibewall.validators.checks.pypi_downloads import PypiDownloadsCheck
 from vibewall.validators.checks.pypi_advisories import PypiAdvisoriesCheck
 
 ALL_CHECKS: list[type[BaseCheck]] = [
-    NpmBlocklistCheck,
-    NpmAllowlistCheck,
+    NpmRulesCheck,
     NpmRegistryCheck,
     NpmExistenceCheck,
     NpmTyposquatCheck,
     NpmAgeCheck,
     NpmDownloadsCheck,
     NpmAdvisoriesCheck,
-    UrlBlocklistCheck,
-    UrlAllowlistCheck,
+    UrlRulesCheck,
     UrlDnsCheck,
     UrlDomainAgeCheck,
-    PypiBlocklistCheck,
-    PypiAllowlistCheck,
+    PypiRulesCheck,
     PypiRegistryCheck,
     PypiExistenceCheck,
     PypiTyposquatCheck,

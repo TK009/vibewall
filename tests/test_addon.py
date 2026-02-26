@@ -131,7 +131,7 @@ async def test_npm_metadata_excludes_advisories() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)
     runner.get_enabled_check_names = MagicMock(
-        return_value=["npm_blocklist", "npm_registry", "npm_advisories"]
+        return_value=["npm_rules", "npm_registry", "npm_advisories"]
     )
     runner.run = AsyncMock(return_value=PipelineResult(
         run_result=RunResult(allowed=True, reason="all checks passed", results=[]),
@@ -151,7 +151,7 @@ async def test_npm_metadata_excludes_advisories() -> None:
     call_kwargs = runner.run.call_args
     # advisories should be excluded from metadata requests
     assert "npm_advisories" not in call_kwargs.kwargs["check_names"]
-    assert "npm_blocklist" in call_kwargs.kwargs["check_names"]
+    assert "npm_rules" in call_kwargs.kwargs["check_names"]
     assert "npm_registry" in call_kwargs.kwargs["check_names"]
 
 

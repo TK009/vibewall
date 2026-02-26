@@ -14,29 +14,22 @@ from vibewall.config import VibewallConfig
 from vibewall.console import ConsoleDisplay
 from vibewall.notifications import Notifier
 from vibewall.proxy.addon import VibewallAddon
-from vibewall.validators.allowlist import AllowBlockList
 from vibewall.validators.base import BaseCheck
 from vibewall.validators.checks import ALL_CHECKS, CHECK_ABBREVS, SCOPE_ORDER
+from vibewall.validators.rules import RuleSet
 from vibewall.validators.runner import CheckRunner
 
 logger = structlog.get_logger()
 
-# Dependencies available to check constructors, keyed by parameter name.
-_DEP_KEYS = {"lists", "url_lists", "pypi_lists", "session"}
-
 
 def _build_checks(
     config: VibewallConfig,
-    npm_lists: AllowBlockList,
-    url_lists: AllowBlockList,
-    pypi_lists: AllowBlockList,
+    ruleset: RuleSet,
     session: aiohttp.ClientSession,
 ) -> list[BaseCheck]:
     """Instantiate all check classes with only the dependencies they declare."""
     available: dict[str, object] = {
-        "lists": npm_lists,
-        "url_lists": url_lists,
-        "pypi_lists": pypi_lists,
+        "ruleset": ruleset,
         "session": session,
     }
 
@@ -85,24 +78,13 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     )
     await cache.open()
 
-    # Load allow/block lists
-    npm_lists = AllowBlockList(
-        config.config_dir / "allowlist.txt",
-        config.config_dir / "blocklist.txt",
-    )
-    url_lists = AllowBlockList(
-        config.config_dir / "url_allowlist.txt",
-        config.config_dir / "url_blocklist.txt",
-    )
-    pypi_lists = AllowBlockList(
-        config.config_dir / "pypi_allowlist.txt",
-        config.config_dir / "pypi_blocklist.txt",
-    )
+    # Load unified rules
+    ruleset = RuleSet.load(config.config_dir / "rules.txt", config.config_dir)
 
     # Shared HTTP session (trust_env=False to avoid proxy loop)
     session = aiohttp.ClientSession(trust_env=False)
 
-    checks = _build_checks(config, npm_lists, url_lists, pypi_lists, session)
+    checks = _build_checks(config, ruleset, session)
 
     # LLM client + request history for ask-llm-* actions
     llm_client = None

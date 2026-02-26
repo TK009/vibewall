@@ -20,12 +20,12 @@ def runner_config() -> VibewallConfig:
 
 class TestTopologicalLayers:
     def test_no_deps_single_layer(self, runner_config: VibewallConfig) -> None:
-        a = StubCheck("npm_blocklist", "npm")
-        b = StubCheck("npm_allowlist", "npm")
+        a = StubCheck("npm_rules", "npm")
+        b = StubCheck("npm_registry", "npm")
         runner = CheckRunner([a, b], runner_config, TTLCache())
         layers = runner._topological_layers([a, b])
         assert len(layers) == 1
-        assert set(c.name for c in layers[0]) == {"npm_blocklist", "npm_allowlist"}
+        assert set(c.name for c in layers[0]) == {"npm_rules", "npm_registry"}
 
     def test_deps_create_layers(self, runner_config: VibewallConfig) -> None:
         registry = StubCheck("npm_registry", "npm")
@@ -40,15 +40,15 @@ class TestTopologicalLayers:
 class TestCheckRunner:
     @pytest.mark.asyncio
     async def test_all_pass(self, runner_config: VibewallConfig) -> None:
-        a = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
-        b = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("not allowlisted", allowlisted=False))
+        a = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
+        b = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
         runner = CheckRunner([a, b], runner_config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
 
     @pytest.mark.asyncio
     async def test_blocklist_fail_blocks(self, runner_config: VibewallConfig) -> None:
-        a = StubCheck("npm_blocklist", "npm", result=CheckResult.fail("blocklisted"))
+        a = StubCheck("npm_rules", "npm", result=CheckResult.fail("blocklisted"))
         b = StubCheck("npm_registry", "npm")
         runner = CheckRunner([a, b], runner_config, TTLCache())
         pipeline = await runner.run("npm", "evil-pkg")
@@ -57,10 +57,10 @@ class TestCheckRunner:
 
     @pytest.mark.asyncio
     async def test_allowlist_short_circuits(self, runner_config: VibewallConfig) -> None:
-        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm")
         existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"])
-        runner = CheckRunner([allowlist, registry, existence], runner_config, TTLCache())
+        runner = CheckRunner([rules, registry, existence], runner_config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
         assert "allowlisted" in pipeline.run_result.reason
@@ -83,7 +83,7 @@ class TestCheckRunner:
     @pytest.mark.asyncio
     async def test_caching(self, runner_config: VibewallConfig) -> None:
         cache = TTLCache()
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         runner = CheckRunner([check], runner_config, cache)
 
         await runner.run("npm", "pkg")
@@ -126,8 +126,8 @@ class TestCheckRunner:
 
     @pytest.mark.asyncio
     async def test_scope_filtering(self, runner_config: VibewallConfig) -> None:
-        npm_check = StubCheck("npm_blocklist", "npm")
-        url_check = StubCheck("url_blocklist", "url")
+        npm_check = StubCheck("npm_rules", "npm")
+        url_check = StubCheck("url_rules", "url")
         runner = CheckRunner([npm_check, url_check], runner_config, TTLCache())
         await runner.run("npm", "lodash")
         assert npm_check.call_count > 0
@@ -234,17 +234,17 @@ class TestIgnoreAllowlist:
         """Checks with ignore_allowlist=True run even when target is allowlisted."""
         config = VibewallConfig()
         config.validators = {
-            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_rules": ValidatorConfig(action="block"),
             "npm_registry": ValidatorConfig(action="warn"),
             "npm_advisories": ValidatorConfig(action="block", ignore_allowlist=True),
             "npm_downloads": ValidatorConfig(action="warn"),
         }
-        # allowlist + registry in layer 0; advisories + downloads in layer 1 (depend on registry)
-        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        # rules + registry in layer 0; advisories + downloads in layer 1 (depend on registry)
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
         advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.ok("no advisories"))
         downloads = StubCheck("npm_downloads", "npm", depends_on=["npm_registry"], result=CheckResult.ok("ok"))
-        runner = CheckRunner([allowlist, registry, advisories, downloads], config, TTLCache())
+        runner = CheckRunner([rules, registry, advisories, downloads], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
         assert advisories.call_count > 0
@@ -255,16 +255,16 @@ class TestIgnoreAllowlist:
         """Checks without ignore_allowlist are skipped when target is allowlisted."""
         config = VibewallConfig()
         config.validators = {
-            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_rules": ValidatorConfig(action="block"),
             "npm_registry": ValidatorConfig(action="warn"),
             "npm_existence": ValidatorConfig(action="block"),
             "npm_age": ValidatorConfig(action="block"),
         }
-        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
         existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"], result=CheckResult.ok("exists"))
         age = StubCheck("npm_age", "npm", depends_on=["npm_registry"], result=CheckResult.ok("old enough"))
-        runner = CheckRunner([allowlist, registry, existence, age], config, TTLCache())
+        runner = CheckRunner([rules, registry, existence, age], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
         assert "allowlisted" in pipeline.run_result.reason
@@ -276,14 +276,14 @@ class TestIgnoreAllowlist:
         """A FAIL from an ignore_allowlist check overrides the allowlist decision."""
         config = VibewallConfig()
         config.validators = {
-            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_rules": ValidatorConfig(action="block"),
             "npm_registry": ValidatorConfig(action="warn"),
             "npm_advisories": ValidatorConfig(action="block", ignore_allowlist=True),
         }
-        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
         advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("critical vulnerability found"))
-        runner = CheckRunner([allowlist, registry, advisories], config, TTLCache())
+        runner = CheckRunner([rules, registry, advisories], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.blocked
         assert "vulnerability" in pipeline.run_result.reason
@@ -293,14 +293,14 @@ class TestIgnoreAllowlist:
         """A FAIL from an ignore_allowlist check with warn action is downgraded, target still allowed."""
         config = VibewallConfig()
         config.validators = {
-            "npm_allowlist": ValidatorConfig(action="block"),
+            "npm_rules": ValidatorConfig(action="block"),
             "npm_registry": ValidatorConfig(action="warn"),
             "npm_advisories": ValidatorConfig(action="warn", ignore_allowlist=True),
         }
-        allowlist = StubCheck("npm_allowlist", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
         advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("medium vulnerability"))
-        runner = CheckRunner([allowlist, registry, advisories], config, TTLCache())
+        runner = CheckRunner([rules, registry, advisories], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
 
@@ -316,7 +316,7 @@ class TestRunnerResultAwareTTL:
     async def test_result_ttl_used_for_caching(self) -> None:
         """Runner uses check.get_result_ttl when setting cache entries."""
         check = CustomTTLCheck(
-            "npm_blocklist", "npm",
+            "npm_rules", "npm",
             result=CheckResult.ok("ok"),
             ttl_map={CheckStatus.OK: 42},
         )
@@ -327,7 +327,7 @@ class TestRunnerResultAwareTTL:
         await runner.run("npm", "pkg")
 
         # Verify the TTL was applied by checking entry exists
-        entry = cache._data.get("npm_blocklist:pkg")
+        entry = cache._data.get("npm_rules:pkg")
         assert entry is not None
         assert entry.ttl == 42.0
 
@@ -335,7 +335,7 @@ class TestRunnerResultAwareTTL:
 class TestErrorTTL:
     async def test_err_result_uses_error_ttl(self) -> None:
         """ERR results are cached with cache.error_ttl, not the default TTL."""
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.err("timeout"))
+        check = StubCheck("npm_rules", "npm", result=CheckResult.err("timeout"))
         config = VibewallConfig.load(None)
         config.cache.error_ttl = 30
         cache = TTLCache()
@@ -343,7 +343,7 @@ class TestErrorTTL:
 
         await runner.run("npm", "pkg")
 
-        entry = cache._data.get("npm_blocklist:pkg")
+        entry = cache._data.get("npm_rules:pkg")
         assert entry is not None
         assert entry.ttl == 30.0
 
@@ -364,7 +364,7 @@ class TestErrorTTL:
 
     async def test_ok_result_still_uses_default_ttl(self) -> None:
         """Non-ERR results continue to use the normal TTL."""
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("fine"))
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("fine"))
         config = VibewallConfig.load(None)
         config.cache.error_ttl = 15
         cache = TTLCache()
@@ -372,7 +372,7 @@ class TestErrorTTL:
 
         await runner.run("npm", "pkg")
 
-        entry = cache._data.get("npm_blocklist:pkg")
+        entry = cache._data.get("npm_rules:pkg")
         assert entry is not None
         assert entry.ttl == float(config.cache.default_ttl)
 
@@ -380,7 +380,7 @@ class TestErrorTTL:
 class TestBackgroundRefresh:
     async def test_near_expiry_triggers_refresh(self) -> None:
         """When a cache hit is near-expiry, runner spawns a background refresh."""
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"))
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
         config = VibewallConfig.load(None)
         cache = TTLCache()
         runner = CheckRunner([check], config, cache)
@@ -390,7 +390,7 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Manually expire the entry to near-expiry (< 20% remaining)
-        entry = cache._data["npm_blocklist:pkg"]
+        entry = cache._data["npm_rules:pkg"]
         entry.expires_at = time.time() + 1  # very close to expiring
         entry.ttl = 100.0  # original TTL was 100s
 
@@ -405,7 +405,7 @@ class TestBackgroundRefresh:
 
     async def test_duplicate_refresh_prevented(self) -> None:
         """Multiple near-expiry hits for the same key don't spawn duplicate refreshes."""
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"), delay=0.1)
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"), delay=0.1)
         config = VibewallConfig.load(None)
         cache = TTLCache()
         runner = CheckRunner([check], config, cache)
@@ -415,7 +415,7 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Make near-expiry
-        entry = cache._data["npm_blocklist:pkg"]
+        entry = cache._data["npm_rules:pkg"]
         entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
@@ -433,7 +433,7 @@ class TestBackgroundRefresh:
 
     async def test_refresh_exception_caches_err(self) -> None:
         """When a background refresh raises, an ERR result replaces the stale entry."""
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"))
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
         config = VibewallConfig.load(None)
         config.cache.error_ttl = 20
         cache = TTLCache()
@@ -444,19 +444,19 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Make near-expiry to trigger refresh
-        entry = cache._data["npm_blocklist:pkg"]
+        entry = cache._data["npm_rules:pkg"]
         entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
         # Replace check with one that raises
-        exploding = ExplodingCheck("npm_blocklist", "npm")
-        runner._checks["npm_blocklist"] = exploding
+        exploding = ExplodingCheck("npm_rules", "npm")
+        runner._checks["npm_rules"] = exploding
 
         await runner.run("npm", "pkg")
         await asyncio.sleep(0.05)
 
         # The refresh should have cached an ERR result
-        new_entry = cache._data.get("npm_blocklist:pkg")
+        new_entry = cache._data.get("npm_rules:pkg")
         assert new_entry is not None
         raw, display = new_entry.value
         assert raw.status == CheckStatus.ERR
@@ -465,14 +465,14 @@ class TestBackgroundRefresh:
 
 class TestShutdown:
     async def test_shutdown_cancels_tasks(self) -> None:
-        check = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"), delay=10)
+        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"), delay=10)
         config = VibewallConfig.load(None)
         cache = TTLCache()
         runner = CheckRunner([check], config, cache)
 
         # Populate cache, then make near-expiry to trigger refresh
         await runner.run("npm", "pkg")
-        entry = cache._data["npm_blocklist:pkg"]
+        entry = cache._data["npm_rules:pkg"]
         entry.expires_at = time.time() + 1
         entry.ttl = 100.0
 
@@ -496,11 +496,11 @@ class TestBackgroundEligible:
 
     def test_block_action_not_eligible(self) -> None:
         """A block-action check is never background-eligible."""
-        blocklist = StubCheck("npm_blocklist", "npm")
+        rules = StubCheck("npm_rules", "npm")
         config = VibewallConfig.load(None)
-        runner = CheckRunner([blocklist], config, TTLCache())
-        eligible = runner._get_background_eligible([blocklist])
-        assert "npm_blocklist" not in eligible
+        runner = CheckRunner([rules], config, TTLCache())
+        eligible = runner._get_background_eligible([rules])
+        assert "npm_rules" not in eligible
 
     def test_depended_on_not_eligible(self) -> None:
         """A warn check that others depend on is not background-eligible."""
@@ -528,9 +528,9 @@ class TestBackgroundWarnExecution:
         """Background warn checks are excluded from the block/allow decision."""
         # npm_downloads default action is "warn" and has no dependents
         downloads = StubCheck("npm_downloads", "npm", result=CheckResult.fail("low"), delay=0.05)
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         config = VibewallConfig.load(None)
-        runner = CheckRunner([blocklist, downloads], config, TTLCache())
+        runner = CheckRunner([rules, downloads], config, TTLCache())
 
         pipeline = await runner.run("npm", "pkg")
         result = pipeline.run_result
@@ -547,10 +547,10 @@ class TestBackgroundWarnExecution:
     async def test_bg_warn_results_cached(self) -> None:
         """Background warn checks cache their results."""
         downloads = StubCheck("npm_downloads", "npm", result=CheckResult.fail("low"), delay=0.05)
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         config = VibewallConfig.load(None)
         cache = TTLCache()
-        runner = CheckRunner([blocklist, downloads], config, cache)
+        runner = CheckRunner([rules, downloads], config, cache)
 
         pipeline = await runner.run("npm", "pkg")
         await asyncio.wait_for(pipeline.background.wait(), timeout=1)
@@ -562,9 +562,9 @@ class TestBackgroundWarnExecution:
     async def test_bg_warn_calls_on_check_done(self) -> None:
         """Background checks notify via on_check_done when they complete."""
         downloads = StubCheck("npm_downloads", "npm", result=CheckResult.fail("low"), delay=0.05)
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         config = VibewallConfig.load(None)
-        runner = CheckRunner([blocklist, downloads], config, TTLCache())
+        runner = CheckRunner([rules, downloads], config, TTLCache())
 
         notified = {}
 
@@ -573,8 +573,8 @@ class TestBackgroundWarnExecution:
 
         pipeline = await runner.run("npm", "pkg", on_check_done=on_done)
 
-        # blocklist should be notified synchronously
-        assert "npm_blocklist" in notified
+        # rules should be notified synchronously
+        assert "npm_rules" in notified
 
         # downloads may not be done yet — wait
         await asyncio.wait_for(pipeline.background.wait(), timeout=1)
@@ -582,9 +582,9 @@ class TestBackgroundWarnExecution:
 
     async def test_no_bg_event_when_all_sync(self) -> None:
         """When there are no background-eligible checks, background is None."""
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
         config = VibewallConfig.load(None)
-        runner = CheckRunner([blocklist], config, TTLCache())
+        runner = CheckRunner([rules], config, TTLCache())
 
         pipeline = await runner.run("npm", "pkg")
         assert pipeline.background is None
@@ -592,11 +592,11 @@ class TestBackgroundWarnExecution:
     async def test_bg_exception_caches_err_with_error_ttl(self) -> None:
         """When a background check raises, an ERR result is cached with error_ttl."""
         downloads = ExplodingCheck("npm_downloads", "npm", delay=0.05)
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         config = VibewallConfig.load(None)
         config.cache.error_ttl = 25
         cache = TTLCache()
-        runner = CheckRunner([blocklist, downloads], config, cache)
+        runner = CheckRunner([rules, downloads], config, cache)
 
         pipeline = await runner.run("npm", "pkg")
         assert pipeline.background is not None
@@ -611,9 +611,9 @@ class TestBackgroundWarnExecution:
     async def test_bg_exception_notifies_on_check_done(self) -> None:
         """When a background check raises, on_check_done is still called with an ERR result."""
         downloads = ExplodingCheck("npm_downloads", "npm", delay=0.05)
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("not blocked"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("no rule matched", allowlisted=False))
         config = VibewallConfig.load(None)
-        runner = CheckRunner([blocklist, downloads], config, TTLCache())
+        runner = CheckRunner([rules, downloads], config, TTLCache())
 
         notified = {}
         def on_done(name, result):
@@ -628,10 +628,10 @@ class TestBackgroundWarnExecution:
     async def test_cached_bg_check_not_spawned(self) -> None:
         """When a background-eligible check is cached, it's served from cache normally."""
         downloads = StubCheck("npm_downloads", "npm", result=CheckResult.fail("low"))
-        blocklist = StubCheck("npm_blocklist", "npm", result=CheckResult.ok("ok"))
+        rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
         config = VibewallConfig.load(None)
         cache = TTLCache()
-        runner = CheckRunner([blocklist, downloads], config, cache)
+        runner = CheckRunner([rules, downloads], config, cache)
 
         # First run
         pipeline1 = await runner.run("npm", "pkg")

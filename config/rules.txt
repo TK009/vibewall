@@ -1,0 +1,14 @@
+# Vibewall Rules — first-match-wins
+# Block rules checked before allow rules (order matters)
+
+# npm
+@import blocklist.txt [block scope=npm]
+@import allowlist.txt [allow scope=npm]
+
+# PyPI
+@import pypi_blocklist.txt [block scope=pypi]
+@import pypi_allowlist.txt [allow scope=pypi]
+
+# URL
+@import url_blocklist.txt [block scope=url]
+@import url_allowlist.txt [allow scope=url]

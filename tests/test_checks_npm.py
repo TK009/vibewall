@@ -6,9 +6,8 @@ import pytest
 
 from helpers import _simple_response
 from vibewall.models import CheckContext, CheckResult, CheckStatus
-from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.checks.npm_blocklist import NpmBlocklistCheck
-from vibewall.validators.checks.npm_allowlist import NpmAllowlistCheck
+from vibewall.validators.rules import RuleSet
+from vibewall.validators.checks.npm_rules import NpmRulesCheck
 from vibewall.validators.checks.npm_registry import NpmRegistryCheck
 from vibewall.validators.checks.npm_existence import NpmExistenceCheck
 from vibewall.validators.checks.npm_typosquat import NpmTyposquatCheck
@@ -16,32 +15,30 @@ from vibewall.validators.checks.npm_age import NpmAgeCheck
 from vibewall.validators.checks.npm_downloads import NpmDownloadsCheck
 
 
-class TestNpmBlocklist:
+class TestNpmRules:
     @pytest.mark.asyncio
-    async def test_blocked(self, npm_lists: AllowBlockList) -> None:
-        check = NpmBlocklistCheck(lists=npm_lists)
+    async def test_blocked(self, ruleset: RuleSet) -> None:
+        check = NpmRulesCheck(ruleset=ruleset)
         result = await check.run("evil-package", CheckContext())
         assert result.status == CheckStatus.FAIL
-        assert "blocklisted" in result.reason
+        assert "block" in result.reason
 
     @pytest.mark.asyncio
-    async def test_not_blocked(self, npm_lists: AllowBlockList) -> None:
-        check = NpmBlocklistCheck(lists=npm_lists)
+    async def test_not_blocked(self, ruleset: RuleSet) -> None:
+        check = NpmRulesCheck(ruleset=ruleset)
         result = await check.run("safe-package", CheckContext())
         assert result.status == CheckStatus.OK
 
-
-class TestNpmAllowlist:
     @pytest.mark.asyncio
-    async def test_allowlisted(self, npm_lists: AllowBlockList) -> None:
-        check = NpmAllowlistCheck(lists=npm_lists)
+    async def test_allowlisted(self, ruleset: RuleSet) -> None:
+        check = NpmRulesCheck(ruleset=ruleset)
         result = await check.run("lodash", CheckContext())
         assert result.status == CheckStatus.OK
         assert result.data["allowlisted"] is True
 
     @pytest.mark.asyncio
-    async def test_not_allowlisted(self, npm_lists: AllowBlockList) -> None:
-        check = NpmAllowlistCheck(lists=npm_lists)
+    async def test_not_allowlisted(self, ruleset: RuleSet) -> None:
+        check = NpmRulesCheck(ruleset=ruleset)
         result = await check.run("unknown-pkg", CheckContext())
         assert result.status == CheckStatus.OK
         assert result.data["allowlisted"] is False
@@ -102,30 +99,30 @@ class TestNpmExistence:
 
 class TestNpmTyposquat:
     @pytest.mark.asyncio
-    async def test_typosquat_detected(self, npm_lists: AllowBlockList) -> None:
+    async def test_typosquat_detected(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("npm_registry", CheckResult.ok("ok", registry_data={}, status_code=200))
-        ctx.add("npm_allowlist", CheckResult.ok("not allowlisted", allowlisted=False))
-        check = NpmTyposquatCheck(lists=npm_lists, max_distance=2)
+        ctx.add("npm_rules", CheckResult.ok("not allowlisted", allowlisted=False))
+        check = NpmTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("expresx", ctx)
         assert result.status == CheckStatus.FAIL
         assert "typosquat" in result.reason
 
     @pytest.mark.asyncio
-    async def test_short_name_skipped(self, npm_lists: AllowBlockList) -> None:
+    async def test_short_name_skipped(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("npm_registry", CheckResult.ok("ok"))
-        ctx.add("npm_allowlist", CheckResult.ok("not allowlisted", allowlisted=False))
-        check = NpmTyposquatCheck(lists=npm_lists, max_distance=2)
+        ctx.add("npm_rules", CheckResult.ok("not allowlisted", allowlisted=False))
+        check = NpmTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("ract", ctx)
         assert result.status == CheckStatus.OK
 
     @pytest.mark.asyncio
-    async def test_allowlisted_skipped(self, npm_lists: AllowBlockList) -> None:
+    async def test_allowlisted_skipped(self, ruleset: RuleSet) -> None:
         ctx = CheckContext()
         ctx.add("npm_registry", CheckResult.ok("ok"))
-        ctx.add("npm_allowlist", CheckResult.ok("allowlisted", allowlisted=True))
-        check = NpmTyposquatCheck(lists=npm_lists, max_distance=2)
+        ctx.add("npm_rules", CheckResult.ok("allowlisted", allowlisted=True))
+        check = NpmTyposquatCheck(ruleset=ruleset, max_distance=2)
         result = await check.run("expresx", ctx)
         assert result.status == CheckStatus.OK
 

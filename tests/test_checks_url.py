@@ -7,42 +7,39 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibewall.models import CheckContext, CheckResult, CheckStatus
-from vibewall.validators.allowlist import AllowBlockList
-from vibewall.validators.checks.url_blocklist import UrlBlocklistCheck
-from vibewall.validators.checks.url_allowlist import UrlAllowlistCheck
+from vibewall.validators.rules import RuleSet
+from vibewall.validators.checks.url_rules import UrlRulesCheck
 from vibewall.validators.checks.url_dns import UrlDnsCheck
 from vibewall.validators.checks.url_domain_age import UrlDomainAgeCheck
 
 
-class TestUrlBlocklist:
+class TestUrlRules:
     @pytest.mark.asyncio
-    async def test_blocked(self, url_lists: AllowBlockList) -> None:
-        check = UrlBlocklistCheck(url_lists=url_lists)
+    async def test_blocked(self, ruleset: RuleSet) -> None:
+        check = UrlRulesCheck(ruleset=ruleset)
         result = await check.run("https://evil.example.com/payload", CheckContext())
         assert result.status == CheckStatus.FAIL
-        assert "blocklisted" in result.reason
+        assert "block" in result.reason
 
     @pytest.mark.asyncio
-    async def test_not_blocked(self, url_lists: AllowBlockList) -> None:
-        check = UrlBlocklistCheck(url_lists=url_lists)
+    async def test_not_blocked(self, ruleset: RuleSet) -> None:
+        check = UrlRulesCheck(ruleset=ruleset)
         result = await check.run("https://safe.example.com/page", CheckContext())
         assert result.status == CheckStatus.OK
 
-
-class TestUrlAllowlist:
     @pytest.mark.asyncio
-    async def test_allowlisted(self, url_lists: AllowBlockList) -> None:
-        check = UrlAllowlistCheck(url_lists=url_lists)
+    async def test_allowlisted(self, ruleset: RuleSet) -> None:
+        check = UrlRulesCheck(ruleset=ruleset)
         result = await check.run("https://github.com/some/repo", CheckContext())
         assert result.status == CheckStatus.OK
-        assert "allowlisted" in result.reason
+        assert result.data["allowlisted"] is True
 
     @pytest.mark.asyncio
-    async def test_not_allowlisted(self, url_lists: AllowBlockList) -> None:
-        check = UrlAllowlistCheck(url_lists=url_lists)
+    async def test_not_allowlisted(self, ruleset: RuleSet) -> None:
+        check = UrlRulesCheck(ruleset=ruleset)
         result = await check.run("https://unknown.com/page", CheckContext())
         assert result.status == CheckStatus.OK
-        assert "not allowlisted" in result.reason
+        assert result.data["allowlisted"] is False
 
 
 class TestUrlDns:
