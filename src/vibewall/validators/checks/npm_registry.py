@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class NpmRegistryCheck(BaseCheck):
     name = "npm_registry"
     abbrev = "REG"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "npm"
     default_action = "warn"
     default_cache_ttl = 86400

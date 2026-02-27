@@ -7,7 +7,7 @@ from vibewall.validators.base import BaseCheck
 class PypiExistenceCheck(BaseCheck):
     name = "pypi_existence"
     abbrev = "EXI"
-    depends_on = ["pypi_registry"]
+    depends_on = ("pypi_registry",)
     scope = "pypi"
 
     def __init__(self, **kwargs) -> None:

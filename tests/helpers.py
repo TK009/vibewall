@@ -15,13 +15,13 @@ class StubCheck(BaseCheck):
         self,
         name: str,
         scope: str,
-        depends_on: list[str] | None = None,
+        depends_on: tuple[str, ...] | None = None,
         result: CheckResult | None = None,
         delay: float = 0,
     ):
         self.name = name
         self.scope = scope
-        self.depends_on = depends_on or []
+        self.depends_on = depends_on or ()
         self._result = result or CheckResult.ok("stub ok")
         self._delay = delay
         self.call_count = 0

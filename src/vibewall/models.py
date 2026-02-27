@@ -37,7 +37,14 @@ class CheckResult:
 
 
 class CheckContext:
-    """Carries accumulated data from completed dependency checks."""
+    """Carries accumulated data from completed dependency checks.
+
+    Thread-safety contract: ``_results`` is a plain dict that is **not**
+    safe for concurrent mutation.  The runner guarantees sequential access
+    by only calling :meth:`add` *after* each ``asyncio.gather`` layer
+    completes — never from within the gathered coroutines themselves.
+    Concurrent tasks may call :meth:`get` / :meth:`data` (read-only) safely.
+    """
 
     def __init__(self, *, version: str | None = None, method: str | None = None) -> None:
         self._results: dict[str, CheckResult] = {}

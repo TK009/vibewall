@@ -9,6 +9,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+from vibewall.exceptions import ConfigError
 from vibewall.validators.checks import VALIDATOR_DEFAULTS
 
 _VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block", "ask-llm-allow", "ask-llm-block"}
@@ -16,11 +17,11 @@ _VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block", "ask-llm-allow", "a
 
 def _validate_action(action: str) -> str:
     if action == "ask":
-        raise ValueError(
+        raise ConfigError(
             "action 'ask' was removed; use 'ask-allow' or 'ask-block' instead"
         )
     if action not in _VALID_ACTIONS:
-        raise ValueError(
+        raise ConfigError(
             f"invalid action '{action}', must be one of: {', '.join(sorted(_VALID_ACTIONS))}"
         )
     return action

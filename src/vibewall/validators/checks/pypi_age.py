@@ -9,7 +9,7 @@ from vibewall.validators.base import BaseCheck
 class PypiAgeCheck(BaseCheck):
     name = "pypi_age"
     abbrev = "AGE"
-    depends_on = ["pypi_registry"]
+    depends_on = ("pypi_registry",)
     scope = "pypi"
 
     def __init__(self, min_days: int = 7, missing_date: str = "fail", **kwargs) -> None:

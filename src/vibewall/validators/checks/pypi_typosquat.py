@@ -12,7 +12,7 @@ _MIN_TYPOSQUAT_NAME_LEN = 6
 class PypiTyposquatCheck(BaseCheck):
     name = "pypi_typosquat"
     abbrev = "TYP"
-    depends_on = ["pypi_registry", "pypi_rules"]
+    depends_on = ("pypi_registry", "pypi_rules")
     scope = "pypi"
     default_action = "warn"
 

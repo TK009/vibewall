@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class UrlDomainAgeCheck(BaseCheck):
     name = "url_domain_age"
     abbrev = "AGE"
-    depends_on = ["url_dns"]
+    depends_on = ("url_dns",)
     scope = "url"
     default_cache_ttl = 604800
 

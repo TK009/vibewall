@@ -11,6 +11,7 @@ from mitmproxy.tools.dump import DumpMaster
 
 from vibewall.cache.store import SQLiteCache
 from vibewall.config import VibewallConfig
+from vibewall.exceptions import CheckError
 from vibewall.console import ConsoleDisplay
 from vibewall.notifications import Notifier
 from vibewall.proxy.addon import VibewallAddon
@@ -54,7 +55,7 @@ def _build_checks(
 
         try:
             checks.append(cls(**kwargs))
-        except TypeError as e:
+        except (TypeError, CheckError) as e:
             logger.error("check_init_skipped", check=cls.name, error=str(e))
 
     return checks

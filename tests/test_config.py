@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from vibewall.config import VibewallConfig, ValidatorConfig
+from vibewall.exceptions import ConfigError
 
 
 def test_default_config_has_all_validators() -> None:
@@ -51,7 +52,7 @@ def test_invalid_action_raises(tmp_path: Path) -> None:
 [validators.npm_rules]
 action = "invalid"
 """)
-    with pytest.raises(ValueError, match="invalid action"):
+    with pytest.raises(ConfigError, match="invalid action"):
         VibewallConfig.load(toml)
 
 
@@ -72,7 +73,7 @@ def test_legacy_ask_action_gives_helpful_error(tmp_path: Path) -> None:
 [validators.npm_rules]
 action = "ask"
 """)
-    with pytest.raises(ValueError, match="use 'ask-allow' or 'ask-block' instead"):
+    with pytest.raises(ConfigError, match="use 'ask-allow' or 'ask-block' instead"):
         VibewallConfig.load(toml)
 
 

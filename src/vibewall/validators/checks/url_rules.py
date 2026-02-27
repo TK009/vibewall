@@ -8,7 +8,7 @@ from vibewall.validators.rules import RuleSet
 class UrlRulesCheck(BaseCheck):
     name = "url_rules"
     abbrev = "RUL"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "url"
 
     def __init__(self, ruleset: RuleSet, **kwargs) -> None:

@@ -20,7 +20,7 @@ from vibewall.validators.checks._osv import (
 class NpmAdvisoriesCheck(BaseCheck):
     name = "npm_advisories"
     abbrev = "ADV"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "npm"
     default_cache_ttl = 3600
     default_ignore_allowlist = True

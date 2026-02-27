@@ -29,7 +29,7 @@ class TestTopologicalLayers:
 
     def test_deps_create_layers(self, runner_config: VibewallConfig) -> None:
         registry = StubCheck("npm_registry", "npm")
-        existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"])
+        existence = StubCheck("npm_existence", "npm", depends_on=("npm_registry",))
         runner = CheckRunner([registry, existence], runner_config, TTLCache())
         layers = runner._topological_layers([registry, existence])
         assert len(layers) == 2
@@ -59,7 +59,7 @@ class TestCheckRunner:
     async def test_allowlist_short_circuits(self, runner_config: VibewallConfig) -> None:
         rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm")
-        existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"])
+        existence = StubCheck("npm_existence", "npm", depends_on=("npm_registry",))
         runner = CheckRunner([rules, registry, existence], runner_config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
@@ -242,8 +242,8 @@ class TestIgnoreAllowlist:
         # rules + registry in layer 0; advisories + downloads in layer 1 (depend on registry)
         rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
-        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.ok("no advisories"))
-        downloads = StubCheck("npm_downloads", "npm", depends_on=["npm_registry"], result=CheckResult.ok("ok"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=("npm_registry",), result=CheckResult.ok("no advisories"))
+        downloads = StubCheck("npm_downloads", "npm", depends_on=("npm_registry",), result=CheckResult.ok("ok"))
         runner = CheckRunner([rules, registry, advisories, downloads], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
@@ -262,8 +262,8 @@ class TestIgnoreAllowlist:
         }
         rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
-        existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"], result=CheckResult.ok("exists"))
-        age = StubCheck("npm_age", "npm", depends_on=["npm_registry"], result=CheckResult.ok("old enough"))
+        existence = StubCheck("npm_existence", "npm", depends_on=("npm_registry",), result=CheckResult.ok("exists"))
+        age = StubCheck("npm_age", "npm", depends_on=("npm_registry",), result=CheckResult.ok("old enough"))
         runner = CheckRunner([rules, registry, existence, age], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
@@ -282,7 +282,7 @@ class TestIgnoreAllowlist:
         }
         rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
-        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("critical vulnerability found"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=("npm_registry",), result=CheckResult.fail("critical vulnerability found"))
         runner = CheckRunner([rules, registry, advisories], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.blocked
@@ -299,7 +299,7 @@ class TestIgnoreAllowlist:
         }
         rules = StubCheck("npm_rules", "npm", result=CheckResult.ok("allowlisted", allowlisted=True))
         registry = StubCheck("npm_registry", "npm", result=CheckResult.ok("ok"))
-        advisories = StubCheck("npm_advisories", "npm", depends_on=["npm_registry"], result=CheckResult.fail("medium vulnerability"))
+        advisories = StubCheck("npm_advisories", "npm", depends_on=("npm_registry",), result=CheckResult.fail("medium vulnerability"))
         runner = CheckRunner([rules, registry, advisories], config, TTLCache())
         pipeline = await runner.run("npm", "lodash")
         assert pipeline.run_result.allowed
@@ -505,7 +505,7 @@ class TestBackgroundEligible:
     def test_depended_on_not_eligible(self) -> None:
         """A warn check that others depend on is not background-eligible."""
         registry = StubCheck("npm_registry", "npm")
-        existence = StubCheck("npm_existence", "npm", depends_on=["npm_registry"])
+        existence = StubCheck("npm_existence", "npm", depends_on=("npm_registry",))
         config = VibewallConfig.load(None)
         # Force registry to warn action
         config.validators["npm_registry"] = ValidatorConfig(action="warn")

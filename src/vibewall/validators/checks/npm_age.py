@@ -9,7 +9,7 @@ from vibewall.validators.base import BaseCheck
 class NpmAgeCheck(BaseCheck):
     name = "npm_age"
     abbrev = "AGE"
-    depends_on = ["npm_registry"]
+    depends_on = ("npm_registry",)
     scope = "npm"
 
     def __init__(self, min_days: int = 7, missing_date: str = "fail", **kwargs) -> None:

@@ -8,7 +8,7 @@ from vibewall.validators.rules import RuleSet
 class NpmRulesCheck(BaseCheck):
     name = "npm_rules"
     abbrev = "RUL"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "npm"
 
     def __init__(self, ruleset: RuleSet, **kwargs) -> None:

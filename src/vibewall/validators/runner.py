@@ -8,6 +8,7 @@ import structlog
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import VibewallConfig
+from vibewall.exceptions import CheckError
 from vibewall.models import CheckContext, CheckResult, CheckStatus, PipelineResult, RunResult
 from vibewall.llm.history import HistoryEntry
 from vibewall.validators.action import (
@@ -194,6 +195,8 @@ class CheckRunner:
                     if not self._is_llm_action(check.name, display):
                         display = maybe_downgrade(check.name, display, self._config)
                     all_results.append((check.name, display))
+                    # Safe: add() is called sequentially after gather completes,
+                    # never from within concurrent tasks.  See CheckContext docstring.
                     context.add(check.name, result)
                     completed_names.add(check.name)
                     ttl = self._get_result_ttl(check, result)
@@ -231,6 +234,10 @@ class CheckRunner:
         all_results = await self._apply_llm_decisions(
             scope, target, all_results, on_check_done,
         )
+
+        # Prune completed background tasks to prevent unbounded accumulation
+        # across successive run() calls.
+        self._background_tasks = {t for t in self._background_tasks if not t.done()}
 
         run_result = self._finalize(all_results, short_circuit=allowlist_sc)
         self._record_history(scope, target, all_results, run_result)
@@ -441,6 +448,13 @@ class CheckRunner:
                 ttl = self._get_result_ttl(check, result)
                 self._cache.set(f"{check.name}:{target}", (result, display), ttl)
                 self._notify(on_check_done, check.name, display)
+            except CheckError:
+                logger.exception("background_check_error", check=check.name, target=target)
+                err = CheckResult.err(f"{check.name} raised an exception")
+                display = maybe_downgrade(check.name, err, self._config)
+                ttl = self._get_result_ttl(check, err)
+                self._cache.set(f"{check.name}:{target}", (err, display), ttl)
+                self._notify(on_check_done, check.name, display)
             except Exception:
                 logger.exception("background_check_error", check=check.name, target=target)
                 err = CheckResult.err(f"{check.name} raised an exception")
@@ -472,6 +486,12 @@ class CheckRunner:
                 display = maybe_downgrade(check.name, result, self._config)
                 ttl = self._get_result_ttl(check, result)
                 self._cache.set(cache_key, (result, display), ttl)
+            except CheckError:
+                logger.exception("background_refresh_error", check=check.name, target=target)
+                err = CheckResult.err(f"{check.name} raised an exception")
+                display = maybe_downgrade(check.name, err, self._config)
+                ttl = self._get_result_ttl(check, err)
+                self._cache.set(cache_key, (err, display), ttl)
             except Exception:
                 logger.exception("background_refresh_error", check=check.name, target=target)
                 err = CheckResult.err(f"{check.name} raised an exception")

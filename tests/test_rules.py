@@ -234,6 +234,62 @@ class TestRuleMatching:
         assert rs.match("url", "https://evil.com/api", method=None) is not None
 
 
+class TestMatchOptimization:
+    """Tests that the scope-partitioned + prefix-dict optimization preserves semantics."""
+
+    def test_interleaved_exact_regex_ordering(self, tmp_path: Path) -> None:
+        """Exact rules after a regex must still be matched via linear scan."""
+        rules_file = tmp_path / "rules.txt"
+        rules_file.write_text(
+            "[allow scope=npm]\nlodash\n"
+            "[block scope=npm]\n/evil-.*/\n"
+            "[block scope=npm]\nlate-exact\n"
+        )
+        rs = RuleSet.load(rules_file, tmp_path)
+        # Prefix dict should hit lodash
+        m = rs.match("npm", "lodash")
+        assert m is not None
+        assert m.rule.action == "allow"
+        # Regex should still work
+        m = rs.match("npm", "evil-foo")
+        assert m is not None
+        assert m.rule.action == "block"
+        # Late exact rule (after regex) should still be found
+        m = rs.match("npm", "late-exact")
+        assert m is not None
+        assert m.rule.action == "block"
+
+    def test_scope_partitioning(self, tmp_path: Path) -> None:
+        """Rules for different scopes don't interfere."""
+        rules_file = tmp_path / "rules.txt"
+        rules_file.write_text(
+            "[block scope=npm]\nevil-pkg\n"
+            "[allow scope=pypi]\nevil-pkg\n"
+        )
+        rs = RuleSet.load(rules_file, tmp_path)
+        m = rs.match("npm", "evil-pkg")
+        assert m is not None and m.rule.action == "block"
+        m = rs.match("pypi", "evil-pkg")
+        assert m is not None and m.rule.action == "allow"
+        assert rs.match("url", "evil-pkg") is None
+
+    def test_method_filtered_rule_not_in_prefix(self, tmp_path: Path) -> None:
+        """Rules with method filters break the prefix and are handled by linear scan."""
+        rules_file = tmp_path / "rules.txt"
+        rules_file.write_text(
+            "[block scope=url methods=DELETE]\nevil.com\n"
+            "[allow scope=url]\nsafe.com\n"
+        )
+        rs = RuleSet.load(rules_file, tmp_path)
+        # Method-filtered rule should not be in prefix, but should match via scan
+        assert rs.match("url", "https://evil.com/api", method="DELETE") is not None
+        assert rs.match("url", "https://evil.com/api", method="GET") is None
+        # Rule after method-filtered one should still match
+        m = rs.match("url", "https://safe.com/page")
+        assert m is not None
+        assert m.rule.action == "allow"
+
+
 class TestAllowlistedNames:
     def test_exact_allow_names_collected(self, tmp_path: Path) -> None:
         rules_file = tmp_path / "rules.txt"

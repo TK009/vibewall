@@ -20,7 +20,7 @@ from vibewall.validators.checks._osv import (
 class PypiAdvisoriesCheck(BaseCheck):
     name = "pypi_advisories"
     abbrev = "ADV"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "pypi"
     default_cache_ttl = 3600
     default_ignore_allowlist = True

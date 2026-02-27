@@ -8,7 +8,7 @@ from vibewall.validators.rules import RuleSet
 class PypiRulesCheck(BaseCheck):
     name = "pypi_rules"
     abbrev = "RUL"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "pypi"
 
     def __init__(self, ruleset: RuleSet, **kwargs) -> None:

@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class PypiRegistryCheck(BaseCheck):
     name = "pypi_registry"
     abbrev = "REG"
-    depends_on: list[str] = []
+    depends_on: tuple[str, ...] = ()
     scope = "pypi"
     default_action = "warn"
     default_cache_ttl = 86400

@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 
 import structlog
 
+from vibewall.exceptions import ConfigError
+
 logger = structlog.get_logger()
 
 _VALID_ACTIONS = frozenset({
@@ -55,12 +57,36 @@ class RuleSet:
         self._rules = rules
         # Pre-compute allowlisted exact names per scope for typosquat checks
         self._allowlisted: dict[str, frozenset[str]] = {}
-        by_scope: dict[str, set[str]] = {}
+        allow_by_scope: dict[str, set[str]] = {}
         for r in rules:
             if r.action == "allow" and not r.is_regex and r.exact is not None:
-                by_scope.setdefault(r.scope, set()).add(r.exact)
-        for scope, names in by_scope.items():
+                allow_by_scope.setdefault(r.scope, set()).add(r.exact)
+        for scope, names in allow_by_scope.items():
             self._allowlisted[scope] = frozenset(names)
+
+        # Partition rules by scope for O(1) scope lookup
+        self._by_scope: dict[str, list[Rule]] = {}
+        for r in rules:
+            self._by_scope.setdefault(r.scope, []).append(r)
+
+        # Build exact-match prefix dict per scope.
+        # Consecutive exact-match rules (no method filter) from the front of
+        # each scope's list go into a dict for O(1) lookup.  First occurrence
+        # wins (preserves first-match-wins semantics since the prefix comes
+        # before any regex or method-filtered rule).
+        self._exact_prefix: dict[str, dict[str, Rule]] = {}
+        self._prefix_end: dict[str, int] = {}
+        for scope, scope_rules in self._by_scope.items():
+            prefix: dict[str, Rule] = {}
+            end = 0
+            for i, r in enumerate(scope_rules):
+                if r.is_regex or r.methods is not None:
+                    break
+                if r.exact is not None and r.exact not in prefix:
+                    prefix[r.exact] = r
+                end = i + 1
+            self._exact_prefix[scope] = prefix
+            self._prefix_end[scope] = end
 
     @property
     def rules(self) -> list[Rule]:
@@ -146,10 +172,13 @@ class RuleSet:
                 logger.warning("rule_outside_section", file=str(rules_path), line=lineno, text=line)
                 continue
 
-            rule = _parse_rule_entry(
-                line, current_action, current_scope, current_methods,
-                str(rules_path), lineno,
-            )
+            try:
+                rule = _parse_rule_entry(
+                    line, current_action, current_scope, current_methods,
+                    str(rules_path), lineno,
+                )
+            except ConfigError:
+                continue
             if rule is not None:
                 rules.append(rule)
 
@@ -157,9 +186,28 @@ class RuleSet:
 
     def match(self, scope: str, target: str, method: str | None = None) -> RuleMatch | None:
         """Find the first matching rule for a target. Returns None if no match."""
-        for rule in self._rules:
-            if rule.scope != scope:
-                continue
+        scope_rules = self._by_scope.get(scope)
+        if not scope_rules:
+            return None
+
+        # Pre-compute normalized key and hostname once
+        if scope == "url":
+            hostname = (urlparse(target).hostname or "").lower()
+            lookup_key = hostname
+        else:
+            lookup_key = target.lower()
+
+        # Fast-path: check exact-match prefix dict (O(1))
+        prefix = self._exact_prefix.get(scope)
+        if prefix:
+            rule = prefix.get(lookup_key)
+            if rule is not None:
+                matched = hostname if scope == "url" else target
+                return RuleMatch(rule=rule, matched_value=matched)
+
+        # Slow-path: linear scan from prefix-end onwards
+        start = self._prefix_end.get(scope, 0)
+        for rule in scope_rules[start:]:
             if rule.methods is not None and method is not None:
                 if method.upper() not in rule.methods:
                     continue
@@ -168,11 +216,10 @@ class RuleSet:
                     return RuleMatch(rule=rule, matched_value=target)
             elif rule.exact is not None:
                 if scope == "url":
-                    hostname = urlparse(target).hostname or ""
-                    if hostname.lower() == rule.exact:
+                    if hostname == rule.exact:
                         return RuleMatch(rule=rule, matched_value=hostname)
                 else:
-                    if target.lower() == rule.exact:
+                    if lookup_key == rule.exact:
                         return RuleMatch(rule=rule, matched_value=target)
         return None
 
@@ -202,7 +249,9 @@ def _parse_rule_entry(
             compiled = re.compile(pattern_str, re.IGNORECASE)
         except re.error as e:
             logger.warning("invalid_regex", file=source_file, line=source_line, pattern=pattern_str, error=str(e))
-            return None
+            raise ConfigError(
+                f"invalid regex '{pattern_str}' at {source_file}:{source_line}: {e}"
+            ) from e
         return Rule(
             action=action,
             scope=scope,

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from vibewall.cache.serde import deserialize, serialize
+from vibewall.exceptions import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,11 @@ class SQLiteCache:
     ) -> None:
         if self._db is None:
             return
-        blob = serialize(value)
+        try:
+            blob = serialize(value)
+        except (TypeError, ValueError) as exc:
+            logger.warning("cache_serialize_skip", extra={"key": key, "error": str(exc)})
+            return
         self._write_queue.append(_WriteOp(
             op=_Op.SET, key=key, value=blob,
             ttl=ttl, expires_at=expires_at, updated_at=updated_at,
@@ -209,6 +214,8 @@ class SQLiteCache:
                 elif op.op is _Op.CLEAR:
                     await self._db.execute("DELETE FROM cache_entries")
             await self._db.commit()
+        except CacheError:
+            logger.exception("cache_flush_error")
         except Exception:
             logger.exception("cache_flush_error")
 
@@ -273,6 +280,9 @@ class SQLiteCache:
         for key, raw, ttl, expires_at, updated_at in rows:
             try:
                 value = deserialize(raw)
+            except CacheError:
+                logger.warning("cache_deserialize_error", extra={"key": key})
+                continue
             except Exception:
                 logger.warning("cache_deserialize_error", extra={"key": key})
                 continue
@@ -301,6 +311,8 @@ class SQLiteCache:
                         (time.time(),),
                     )
                     await self._db.commit()
+                except CacheError:
+                    logger.exception("cache_cleanup_error")
                 except Exception:
                     logger.exception("cache_cleanup_error")
 
