@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import TYPE_CHECKING
 
 import structlog
@@ -35,6 +36,10 @@ _PYPI_DOWNLOAD_RE = re.compile(
 )
 
 
+_FLOW_TTL = 600  # seconds — stale flow entries older than this are cleaned up
+_CLEANUP_INTERVAL = 60  # seconds between cleanup sweeps
+
+
 class VibewallAddon:
     def __init__(
         self,
@@ -47,8 +52,10 @@ class VibewallAddon:
         self._runner = runner
         self._display = display
         self._notifier = notifier
-        self._flow_to_req: dict[str, str] = {}  # flow.id → req_id
+        # flow.id → (req_id, monotonic_time)
+        self._flow_to_req: dict[str, tuple[str, float]] = {}
         self._flow_to_bg: dict[str, asyncio.Event] = {}  # flow.id → background event
+        self._cleanup_task: asyncio.Task[None] | None = None
 
     async def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
@@ -115,9 +122,10 @@ class VibewallAddon:
     def response(self, flow: http.HTTPFlow) -> None:
         if self._display is None:
             return
-        req_id = self._flow_to_req.pop(flow.id, None)
-        if req_id is None:
+        entry = self._flow_to_req.pop(flow.id, None)
+        if entry is None:
             return
+        req_id = entry[0]
         if flow.response is not None:
             self._display.update_status_code(req_id, flow.response.status_code)
         bg_event = self._flow_to_bg.pop(flow.id, None)
@@ -129,9 +137,10 @@ class VibewallAddon:
     def error(self, flow: http.HTTPFlow) -> None:
         if self._display is None:
             return
-        req_id = self._flow_to_req.pop(flow.id, None)
-        if req_id is None:
+        entry = self._flow_to_req.pop(flow.id, None)
+        if entry is None:
             return
+        req_id = entry[0]
         bg_event = self._flow_to_bg.pop(flow.id, None)
         if bg_event is not None and not bg_event.is_set():
             asyncio.create_task(self._deferred_finish(req_id, bg_event))
@@ -164,7 +173,8 @@ class VibewallAddon:
             return pipeline.run_result
 
         req_id = self._display.begin_request(scope, target)
-        self._flow_to_req[flow.id] = req_id
+        self._flow_to_req[flow.id] = (req_id, time.monotonic())
+        self._ensure_cleanup_task()
         pipeline = await self._runner.run(
             scope,
             target,
@@ -206,7 +216,7 @@ class VibewallAddon:
                 asyncio.create_task(self._deferred_finish(req_id, bg_event))
             else:
                 self._display.finish_request(req_id)
-            del self._flow_to_req[flow.id]
+            self._flow_to_req.pop(flow.id, None)
 
         return result
 
@@ -218,6 +228,30 @@ class VibewallAddon:
             pass
         if self._display is not None:
             self._display.finish_request(req_id)
+
+    def _ensure_cleanup_task(self) -> None:
+        """Start the periodic cleanup task if not already running."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
+
+    async def _periodic_cleanup(self) -> None:
+        """Periodically remove stale flow entries from tracking dicts."""
+        while True:
+            await asyncio.sleep(_CLEANUP_INTERVAL)
+            self._cleanup_stale_flows()
+
+    def _cleanup_stale_flows(self) -> None:
+        """Remove flow entries older than _FLOW_TTL seconds."""
+        now = time.monotonic()
+        stale_ids = [
+            flow_id
+            for flow_id, (_, created) in self._flow_to_req.items()
+            if now - created > _FLOW_TTL
+        ]
+        for flow_id in stale_ids:
+            self._flow_to_req.pop(flow_id, None)
+            self._flow_to_bg.pop(flow_id, None)
+            logger.warning("cleaned_stale_flow", flow_id=flow_id)
 
     def _handle_result(
         self, flow: http.HTTPFlow, result: RunResult, check_type: str, target: str

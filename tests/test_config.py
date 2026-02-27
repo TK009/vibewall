@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,29 @@ def test_disabled_validator() -> None:
     del cfg.validators["npm_downloads"]
     assert not cfg.is_enabled("npm_downloads")
     assert cfg.get_validator("npm_downloads") is None
+
+
+def test_unknown_keys_produce_warnings(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+port = 7777
+cache_tll = 9999
+
+[cache]
+defalt_ttl = 1234
+
+[notifications]
+enbled = true
+
+[llm]
+providr = "anthropic"
+api_key = "test"
+""")
+    with caplog.at_level(logging.WARNING, logger="vibewall.config"):
+        VibewallConfig.load(toml)
+
+    messages = [r.message for r in caplog.records]
+    assert any("cache_tll" in m and "[root]" in m for m in messages)
+    assert any("defalt_ttl" in m and "[cache]" in m for m in messages)
+    assert any("enbled" in m and "[notifications]" in m for m in messages)
+    assert any("providr" in m and "[llm]" in m for m in messages)

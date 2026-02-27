@@ -229,6 +229,32 @@ async def test_npm_request_allowed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_flow_cleanup() -> None:
+    """Stale entries in _flow_to_req are cleaned up."""
+    import time as _time
+    from vibewall.proxy.addon import _FLOW_TTL
+
+    config = VibewallConfig.load(None)
+    runner = AsyncMock(spec=CheckRunner)
+
+    addon = VibewallAddon(config, runner)
+
+    # Manually insert stale and fresh entries
+    now = _time.monotonic()
+    addon._flow_to_req["stale-1"] = ("req-1", now - _FLOW_TTL - 100)
+    addon._flow_to_req["stale-2"] = ("req-2", now - _FLOW_TTL - 1)
+    addon._flow_to_req["fresh-1"] = ("req-3", now - 10)
+    addon._flow_to_bg["stale-1"] = MagicMock()
+
+    addon._cleanup_stale_flows()
+
+    assert "stale-1" not in addon._flow_to_req
+    assert "stale-2" not in addon._flow_to_req
+    assert "stale-1" not in addon._flow_to_bg
+    assert "fresh-1" in addon._flow_to_req
+
+
+@pytest.mark.asyncio
 async def test_url_validation_for_non_npm() -> None:
     config = VibewallConfig.load(None)
     runner = AsyncMock(spec=CheckRunner)

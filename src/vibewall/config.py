@@ -14,6 +14,18 @@ from vibewall.validators.checks import VALIDATOR_DEFAULTS
 
 _VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block", "ask-llm-allow", "ask-llm-block"}
 
+# Known keys per config section — used to warn on typos / unknown keys.
+_KNOWN_ROOT_KEYS = {"port", "host", "pipeline_timeout", "config_dir", "cache", "notifications", "llm", "validators"}
+_KNOWN_CACHE_KEYS = {"default_ttl", "error_ttl", "max_entries", "db_path", "cleanup_interval"}
+_KNOWN_NOTIFICATIONS_KEYS = {"enabled", "blocked", "warned", "ask", "expire_ms", "ask_timeout"}
+_KNOWN_LLM_KEYS = {"provider", "model", "api_key", "base_url", "max_tokens", "temperature", "max_concurrent", "cache_ttl"}
+
+
+def _warn_unknown_keys(section_name: str, data: dict, known: set[str]) -> None:
+    unknown = set(data.keys()) - known
+    for key in sorted(unknown):
+        log.warning("unknown config key '%s' in [%s] (typo?)", key, section_name)
+
 
 def _validate_action(action: str) -> str:
     if action == "ask":
@@ -109,6 +121,8 @@ class VibewallConfig:
         with open(path, "rb") as f:
             data = tomllib.load(f)
 
+        _warn_unknown_keys("root", data, _KNOWN_ROOT_KEYS)
+
         cfg = VibewallConfig()
         cfg.port = data.get("port", cfg.port)
         cfg.host = data.get("host", cfg.host)
@@ -120,6 +134,7 @@ class VibewallConfig:
         # Cache config
         if "cache" in data:
             cache_data = data["cache"]
+            _warn_unknown_keys("cache", cache_data, _KNOWN_CACHE_KEYS)
             cfg.cache.default_ttl = cache_data.get("default_ttl", cfg.cache.default_ttl)
             cfg.cache.error_ttl = cache_data.get("error_ttl", cfg.cache.error_ttl)
             cfg.cache.max_entries = cache_data.get("max_entries", cfg.cache.max_entries)
@@ -129,6 +144,7 @@ class VibewallConfig:
         # Notifications config
         if "notifications" in data:
             n = data["notifications"]
+            _warn_unknown_keys("notifications", n, _KNOWN_NOTIFICATIONS_KEYS)
             cfg.notifications = NotificationsConfig(
                 enabled=n.get("enabled", cfg.notifications.enabled),
                 blocked=n.get("blocked", cfg.notifications.blocked),
@@ -141,6 +157,7 @@ class VibewallConfig:
         # LLM config
         if "llm" in data:
             llm_data = data["llm"]
+            _warn_unknown_keys("llm", llm_data, _KNOWN_LLM_KEYS)
             api_key = llm_data.get("api_key", "")
             if isinstance(api_key, str) and api_key.startswith("$"):
                 api_key = os.environ.get(api_key[1:], "")
