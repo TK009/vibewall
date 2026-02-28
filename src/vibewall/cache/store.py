@@ -156,6 +156,32 @@ class SQLiteCache:
         self._write_queue.clear()
         self._write_queue.append(_WriteOp(op=_Op.CLEAR))
 
+    def get_entry_ttl(self, key: str) -> float | None:
+        """Return the TTL for a cached entry, or None if missing/expired."""
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        if time.time() > entry.expires_at:
+            return None
+        return entry.ttl
+
+    def get_entry_metadata(self, key: str) -> tuple[Any, float] | None:
+        """Return (value, ttl) for a cached entry, or None if missing/expired."""
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        if time.time() > entry.expires_at:
+            return None
+        return (entry.value, entry.ttl)
+
+    def force_near_expiry(self, key: str, remaining: float = 1.0, original_ttl: float = 100.0) -> None:
+        """Simulate near-expiry for a cached entry (test helper)."""
+        entry = self._data.get(key)
+        if entry is None:
+            return
+        entry.expires_at = time.time() + remaining
+        entry.ttl = original_ttl
+
     def cleanup(self) -> int:
         now = time.time()
         expired = [k for k, v in self._data.items() if now > v.expires_at]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from vibewall.validators.checks._osv import (
     affects_version,
     cvss_to_severity,
@@ -58,58 +60,46 @@ class TestAffectsVersion:
 
 
 class TestCvssToSeverity:
-    def test_critical(self) -> None:
-        assert cvss_to_severity(9.0) == "CRITICAL"
-        assert cvss_to_severity(10.0) == "CRITICAL"
-
-    def test_high(self) -> None:
-        assert cvss_to_severity(7.0) == "HIGH"
-        assert cvss_to_severity(8.9) == "HIGH"
-
-    def test_moderate(self) -> None:
-        assert cvss_to_severity(4.0) == "MODERATE"
-        assert cvss_to_severity(6.9) == "MODERATE"
-
-    def test_low(self) -> None:
-        assert cvss_to_severity(0.0) == "LOW"
-        assert cvss_to_severity(3.9) == "LOW"
+    @pytest.mark.parametrize("score,expected", [
+        (0.0, "LOW"),
+        (3.9, "LOW"),
+        (4.0, "MODERATE"),
+        (6.9, "MODERATE"),
+        (7.0, "HIGH"),
+        (8.9, "HIGH"),
+        (9.0, "CRITICAL"),
+        (10.0, "CRITICAL"),
+    ], ids=["low-min", "low-boundary", "moderate-min", "moderate-boundary",
+            "high-min", "high-boundary", "critical-min", "critical-max"])
+    def test_cvss_to_severity(self, score: float, expected: str) -> None:
+        assert cvss_to_severity(score) == expected
 
 
 class TestExtractSeverity:
-    def test_database_specific_severity(self) -> None:
-        vuln = {"database_specific": {"severity": "CRITICAL"}}
-        assert extract_severity(vuln) == "CRITICAL"
-
-    def test_database_specific_case_insensitive(self) -> None:
-        vuln = {"database_specific": {"severity": "high"}}
-        assert extract_severity(vuln) == "HIGH"
-
-    def test_cvss_v3_plain_score(self) -> None:
-        vuln = {"severity": [{"type": "CVSS_V3", "score": "9.8"}]}
-        assert extract_severity(vuln) == "CRITICAL"
-
-    def test_cvss_v3_vector_string_falls_through(self) -> None:
-        """CVSS vector strings contain the spec version (3.1), not a score.
-        They must not be parsed as a numeric score."""
-        vuln = {"severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}]}
-        # No database_specific.severity, vector can't be parsed → fallback HIGH
-        assert extract_severity(vuln) == "HIGH"
-
-    def test_cvss_v3_vector_with_database_severity(self) -> None:
-        """When database_specific.severity exists, vector string is irrelevant."""
-        vuln = {
-            "database_specific": {"severity": "CRITICAL"},
-            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:H/A:N"}],
-        }
-        assert extract_severity(vuln) == "CRITICAL"
-
-    def test_fallback_to_high(self) -> None:
-        vuln = {}
-        assert extract_severity(vuln) == "HIGH"
-
-    def test_invalid_database_severity_falls_through(self) -> None:
-        vuln = {"database_specific": {"severity": "UNKNOWN"}}
-        assert extract_severity(vuln) == "HIGH"
+    @pytest.mark.parametrize("vuln,expected", [
+        pytest.param(
+            {"database_specific": {"severity": "CRITICAL"}},
+            "CRITICAL", id="database-specific"),
+        pytest.param(
+            {"database_specific": {"severity": "high"}},
+            "HIGH", id="database-specific-case-insensitive"),
+        pytest.param(
+            {"severity": [{"type": "CVSS_V3", "score": "9.8"}]},
+            "CRITICAL", id="cvss-v3-plain-score"),
+        pytest.param(
+            {"severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}]},
+            "HIGH", id="cvss-v3-vector-falls-through"),
+        pytest.param(
+            {"database_specific": {"severity": "CRITICAL"},
+             "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:H/A:N"}]},
+            "CRITICAL", id="database-severity-beats-vector"),
+        pytest.param({}, "HIGH", id="fallback-to-high"),
+        pytest.param(
+            {"database_specific": {"severity": "UNKNOWN"}},
+            "HIGH", id="invalid-database-severity-falls-through"),
+    ])
+    def test_extract_severity(self, vuln: dict, expected: str) -> None:
+        assert extract_severity(vuln) == expected
 
 
 class TestHasFix:

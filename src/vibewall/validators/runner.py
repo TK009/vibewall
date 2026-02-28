@@ -70,6 +70,20 @@ class CheckRunner:
         self._history = history
         self._tg: asyncio.TaskGroup | None = None
         self._refreshing: set[str] = set()
+        self._refresh_events: dict[str, asyncio.Event] = {}
+
+    @property
+    def is_running(self) -> bool:
+        """Whether the runner's task group is active."""
+        return self._tg is not None
+
+    async def wait_for_refresh(self, check_name: str, target: str, timeout: float = 5.0) -> None:
+        """Wait for a background refresh to complete."""
+        cache_key = f"{check_name}:{target}"
+        event = self._refresh_events.get(cache_key)
+        if event is None:
+            return
+        await asyncio.wait_for(event.wait(), timeout=timeout)
 
     async def start(self) -> None:
         """Initialize the background task group. Called at proxy startup."""
@@ -490,6 +504,8 @@ class CheckRunner:
         if cache_key in self._refreshing:
             return
         self._refreshing.add(cache_key)
+        event = asyncio.Event()
+        self._refresh_events[cache_key] = event
         refresh_ctx = CheckContext(version=context.version)
 
         async def _do_refresh() -> None:
@@ -512,6 +528,7 @@ class CheckRunner:
                 self._cache.set(cache_key, (err, display), ttl)
             finally:
                 self._refreshing.discard(cache_key)
+                event.set()
 
         tg = await self._ensure_started()
         tg.create_task(_do_refresh())

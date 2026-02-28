@@ -54,8 +54,8 @@ def _format_check_details(results: list[tuple[str, CheckResult]]) -> str:
 class Notifier:
     """Desktop notifications via notify-send for blocked, warned, and ask-mode requests."""
 
-    def __init__(self, enabled: bool = True, expire_ms: int = 10000) -> None:
-        self._available: bool | None = None  # lazy detect
+    def __init__(self, enabled: bool = True, expire_ms: int = 10000, available: bool | None = None) -> None:
+        self._available: bool | None = available  # None = lazy detect
         self._enabled = enabled
         self._expire_ms = expire_ms
 

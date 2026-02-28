@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from helpers import _make_session, _simple_response
@@ -110,7 +111,7 @@ class TestNpmAdvisoriesCheck:
         assert "500" in result.reason
 
     async def test_timeout_fails_open(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         resp = AsyncMock()
         resp.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError)
         session.post = MagicMock(return_value=resp)
@@ -121,7 +122,7 @@ class TestNpmAdvisoriesCheck:
 
     async def test_client_error_fails_open(self) -> None:
         import aiohttp
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         resp = AsyncMock()
         resp.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("connection reset"))
         session.post = MagicMock(return_value=resp)

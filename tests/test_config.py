@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -124,3 +125,102 @@ api_key = "test"
     assert any("defalt_ttl" in m and "[cache]" in m for m in messages)
     assert any("enbled" in m and "[notifications]" in m for m in messages)
     assert any("providr" in m and "[llm]" in m for m in messages)
+
+
+def test_llm_config_loading(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[llm]
+provider = "openai"
+model = "gpt-4"
+api_key = "sk-test-key"
+max_tokens = 512
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.llm is not None
+    assert cfg.llm.provider == "openai"
+    assert cfg.llm.model == "gpt-4"
+    assert cfg.llm.api_key == "sk-test-key"
+    assert cfg.llm.max_tokens == 512
+
+
+def test_llm_api_key_env_var_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIBEWALL_TEST_KEY", "secret-from-env")
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[llm]
+api_key = "$VIBEWALL_TEST_KEY"
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.llm is not None
+    assert cfg.llm.api_key == "secret-from-env"
+
+
+def test_llm_missing_env_var_resolves_to_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VIBEWALL_NONEXISTENT_KEY", raising=False)
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[llm]
+api_key = "$VIBEWALL_NONEXISTENT_KEY"
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.llm is not None
+    assert cfg.llm.api_key == ""
+
+
+def test_no_llm_section_gives_none() -> None:
+    cfg = VibewallConfig.load(None)
+    assert cfg.llm is None
+
+
+def test_cache_config_loading(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[cache]
+db_path = "/tmp/test-cache.db"
+cleanup_interval = 600
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.cache.db_path == "/tmp/test-cache.db"
+    assert cfg.cache.cleanup_interval == 600
+
+
+def test_notifications_ask_timeout(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[notifications]
+ask_timeout = 60
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.notifications.ask_timeout == 60
+
+
+def test_host_and_port_overrides(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+host = "127.0.0.1"
+port = 8888
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.host == "127.0.0.1"
+    assert cfg.port == 8888
+
+
+def test_pipeline_timeout_override(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+pipeline_timeout = 60
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.pipeline_timeout == 60
+
+
+def test_validator_ignore_allowlist_flag(tmp_path: Path) -> None:
+    toml = tmp_path / "test.toml"
+    toml.write_text("""
+[validators.npm_advisories]
+action = "block"
+ignore_allowlist = true
+""")
+    cfg = VibewallConfig.load(toml)
+    assert cfg.validators["npm_advisories"].ignore_allowlist is True

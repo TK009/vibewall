@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from helpers import _simple_response
@@ -43,7 +44,7 @@ class TestPypiRules:
 
 class TestPypiRegistry:
     async def test_success(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"info": {"name": "requests"}})
         )
@@ -54,7 +55,7 @@ class TestPypiRegistry:
         assert result.data["status_code"] == 200
 
     async def test_404(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(return_value=_simple_response(404))
         check = PypiRegistryCheck(session=session)
         result = await check.run("nonexistent", CheckContext())
@@ -63,7 +64,7 @@ class TestPypiRegistry:
 
     async def test_timeout(self) -> None:
         import asyncio
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         resp = AsyncMock()
         resp.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError)
         session.get = MagicMock(return_value=resp)
@@ -171,7 +172,7 @@ class TestPypiAge:
 
 class TestPypiDownloads:
     async def test_popular(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"data": {"last_week": 100000}})
         )
@@ -181,7 +182,7 @@ class TestPypiDownloads:
         assert result.data["downloads"] == 100000
 
     async def test_low_downloads(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"data": {"last_week": 2}})
         )
@@ -193,7 +194,7 @@ class TestPypiDownloads:
 
 class TestPypiAdvisories:
     async def test_no_vulns(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.post = MagicMock(
             return_value=_simple_response(200, {"vulns": []})
         )
@@ -202,7 +203,7 @@ class TestPypiAdvisories:
         assert result.status == CheckStatus.OK
 
     async def test_critical_vuln(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.post = MagicMock(
             return_value=_simple_response(200, {
                 "vulns": [{
@@ -218,7 +219,7 @@ class TestPypiAdvisories:
         assert "actionable" in result.reason
 
     async def test_low_vuln_allowed(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.post = MagicMock(
             return_value=_simple_response(200, {
                 "vulns": [{
@@ -233,7 +234,7 @@ class TestPypiAdvisories:
         assert result.status == CheckStatus.OK
 
     async def test_api_error(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.post = MagicMock(
             return_value=_simple_response(500)
         )

@@ -326,10 +326,7 @@ class TestRunnerResultAwareTTL:
 
         await runner.run("npm", "pkg")
 
-        # Verify the TTL was applied by checking entry exists
-        entry = cache._data.get("npm_rules:pkg")
-        assert entry is not None
-        assert entry.ttl == 42.0
+        assert cache.get_entry_ttl("npm_rules:pkg") == 42.0
 
 
 class TestErrorTTL:
@@ -343,9 +340,7 @@ class TestErrorTTL:
 
         await runner.run("npm", "pkg")
 
-        entry = cache._data.get("npm_rules:pkg")
-        assert entry is not None
-        assert entry.ttl == 30.0
+        assert cache.get_entry_ttl("npm_rules:pkg") == 30.0
 
     async def test_err_result_ignores_per_validator_ttl(self) -> None:
         """ERR results use global error_ttl even if the validator has a custom cache_ttl."""
@@ -358,9 +353,7 @@ class TestErrorTTL:
 
         await runner.run("npm", "pkg")
 
-        entry = cache._data.get("npm_registry:pkg")
-        assert entry is not None
-        assert entry.ttl == 15.0
+        assert cache.get_entry_ttl("npm_registry:pkg") == 15.0
 
     async def test_ok_result_still_uses_default_ttl(self) -> None:
         """Non-ERR results continue to use the normal TTL."""
@@ -372,9 +365,7 @@ class TestErrorTTL:
 
         await runner.run("npm", "pkg")
 
-        entry = cache._data.get("npm_rules:pkg")
-        assert entry is not None
-        assert entry.ttl == float(config.cache.default_ttl)
+        assert cache.get_entry_ttl("npm_rules:pkg") == float(config.cache.default_ttl)
 
 
 class TestBackgroundRefresh:
@@ -389,18 +380,16 @@ class TestBackgroundRefresh:
         await runner.run("npm", "pkg")
         assert check.call_count == 1
 
-        # Manually expire the entry to near-expiry (< 20% remaining)
-        entry = cache._data["npm_rules:pkg"]
-        entry.expires_at = time.time() + 1  # very close to expiring
-        entry.ttl = 100.0  # original TTL was 100s
+        # Simulate near-expiry (< 20% remaining)
+        cache.force_near_expiry("npm_rules:pkg")
 
         # Second run should get cache hit but schedule refresh
         check.call_count = 0
         await runner.run("npm", "pkg")
         assert check.call_count == 0  # served from cache
 
-        # Wait for background task
-        await asyncio.sleep(0.05)
+        # Wait for background refresh to complete
+        await runner.wait_for_refresh("npm_rules", "pkg")
         assert check.call_count == 1  # refresh happened
 
     async def test_duplicate_refresh_prevented(self) -> None:
@@ -414,10 +403,8 @@ class TestBackgroundRefresh:
         await runner.run("npm", "pkg")
         assert check.call_count == 1
 
-        # Make near-expiry
-        entry = cache._data["npm_rules:pkg"]
-        entry.expires_at = time.time() + 1
-        entry.ttl = 100.0
+        # Simulate near-expiry
+        cache.force_near_expiry("npm_rules:pkg")
 
         # Two concurrent runs
         check.call_count = 0
@@ -426,14 +413,15 @@ class TestBackgroundRefresh:
             runner.run("npm", "pkg"),
         )
 
-        await asyncio.sleep(0.2)
+        await runner.wait_for_refresh("npm_rules", "pkg")
         # Only one refresh should have been spawned
         assert check.call_count == 1
 
 
     async def test_refresh_exception_caches_err(self) -> None:
         """When a background refresh raises, an ERR result replaces the stale entry."""
-        check = StubCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
+        from helpers import ConditionalExplodingCheck
+        check = ConditionalExplodingCheck("npm_rules", "npm", result=CheckResult.ok("ok"))
         config = VibewallConfig.load(None)
         config.cache.error_ttl = 20
         cache = TTLCache()
@@ -443,24 +431,21 @@ class TestBackgroundRefresh:
         await runner.run("npm", "pkg")
         assert check.call_count == 1
 
-        # Make near-expiry to trigger refresh
-        entry = cache._data["npm_rules:pkg"]
-        entry.expires_at = time.time() + 1
-        entry.ttl = 100.0
+        # Simulate near-expiry to trigger refresh
+        cache.force_near_expiry("npm_rules:pkg")
 
-        # Replace check with one that raises
-        exploding = ExplodingCheck("npm_rules", "npm")
-        runner._checks["npm_rules"] = exploding
+        # Arm the check to explode on next run
+        check.should_explode = True
 
         await runner.run("npm", "pkg")
-        await asyncio.sleep(0.05)
+        await runner.wait_for_refresh("npm_rules", "pkg")
 
         # The refresh should have cached an ERR result
-        new_entry = cache._data.get("npm_rules:pkg")
-        assert new_entry is not None
-        raw, display = new_entry.value
+        meta = cache.get_entry_metadata("npm_rules:pkg")
+        assert meta is not None
+        (raw, display), ttl = meta
         assert raw.status == CheckStatus.ERR
-        assert new_entry.ttl == 20.0
+        assert ttl == 20.0
 
 
 class TestShutdown:
@@ -470,18 +455,16 @@ class TestShutdown:
         cache = TTLCache()
         runner = CheckRunner([check], config, cache)
 
-        # Populate cache, then make near-expiry to trigger refresh
+        # Populate cache, then simulate near-expiry to trigger refresh
         await runner.run("npm", "pkg")
-        entry = cache._data["npm_rules:pkg"]
-        entry.expires_at = time.time() + 1
-        entry.ttl = 100.0
+        cache.force_near_expiry("npm_rules:pkg")
 
         check._delay = 10  # slow refresh
         await runner.run("npm", "pkg")
 
-        assert runner._tg is not None
+        assert runner.is_running
         await runner.shutdown()
-        assert runner._tg is None
+        assert not runner.is_running
 
 
 class TestBackgroundEligible:
@@ -602,11 +585,11 @@ class TestBackgroundWarnExecution:
         assert pipeline.background is not None
         await asyncio.wait_for(pipeline.background.wait(), timeout=1)
 
-        entry = cache._data.get("npm_downloads:pkg")
-        assert entry is not None
-        raw, display = entry.value
+        meta = cache.get_entry_metadata("npm_downloads:pkg")
+        assert meta is not None
+        (raw, display), ttl = meta
         assert raw.status == CheckStatus.ERR
-        assert entry.ttl == 25.0
+        assert ttl == 25.0
 
     async def test_bg_exception_notifies_on_check_done(self) -> None:
         """When a background check raises, on_check_done is still called with an ERR result."""

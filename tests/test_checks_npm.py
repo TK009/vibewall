@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from helpers import _simple_response
@@ -47,7 +48,7 @@ class TestNpmRules:
 class TestNpmRegistry:
     @pytest.mark.asyncio
     async def test_success(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"name": "lodash"})
         )
@@ -59,7 +60,7 @@ class TestNpmRegistry:
 
     @pytest.mark.asyncio
     async def test_404(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(return_value=_simple_response(404))
         check = NpmRegistryCheck(session=session)
         result = await check.run("nonexistent", CheckContext())
@@ -69,7 +70,7 @@ class TestNpmRegistry:
     @pytest.mark.asyncio
     async def test_timeout(self) -> None:
         import asyncio
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         resp = AsyncMock()
         resp.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError)
         session.get = MagicMock(return_value=resp)
@@ -155,7 +156,7 @@ class TestNpmAge:
 class TestNpmDownloads:
     @pytest.mark.asyncio
     async def test_popular(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"downloads": 100000})
         )
@@ -166,7 +167,7 @@ class TestNpmDownloads:
 
     @pytest.mark.asyncio
     async def test_low_downloads(self) -> None:
-        session = MagicMock()
+        session = MagicMock(spec=aiohttp.ClientSession)
         session.get = MagicMock(
             return_value=_simple_response(200, {"downloads": 2})
         )

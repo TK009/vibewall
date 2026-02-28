@@ -76,7 +76,7 @@ class TestExpiration:
             memory_cache.set("key", "value", ttl=10)
         with patch("vibewall.cache.store.time.time", return_value=now + 11):
             memory_cache.get("key")
-            assert "key" not in memory_cache._data
+            assert memory_cache.get("key") is None
 
 
 class TestCleanup:
@@ -190,7 +190,7 @@ class TestGetWithFreshness:
 
     async def test_ttl_stored_in_entry(self, memory_cache: SQLiteCache) -> None:
         memory_cache.set("key", "val", ttl=42)
-        assert memory_cache._data["key"].ttl == 42.0
+        assert memory_cache.get_entry_ttl("key") == 42.0
 
 
 class TestPersistence:

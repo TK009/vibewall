@@ -34,8 +34,7 @@ class TestNotifierAvailability:
 
 class TestNotifyBlocked:
     async def test_fires_critical_notification(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=5000)
-        notifier._available = True  # skip which() check
+        notifier = Notifier(enabled=True, expire_ms=5000, available=True)
 
         mock_proc = AsyncMock()
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc) as mock_exec:
@@ -55,8 +54,7 @@ class TestNotifyBlocked:
 
 class TestNotifyWarned:
     async def test_fires_normal_notification(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=8000)
-        notifier._available = True
+        notifier = Notifier(enabled=True, expire_ms=8000, available=True)
 
         mock_proc = AsyncMock()
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc) as mock_exec:
@@ -75,8 +73,7 @@ class TestNotifyWarned:
 
 class TestPromptAsk:
     async def test_allow_action(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=10000)
-        notifier._available = True
+        notifier = Notifier(enabled=True, expire_ms=10000, available=True)
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"allow\n", b""))
@@ -85,8 +82,7 @@ class TestPromptAsk:
             assert result is True
 
     async def test_block_action(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=10000)
-        notifier._available = True
+        notifier = Notifier(enabled=True, expire_ms=10000, available=True)
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"block\n", b""))
@@ -95,8 +91,7 @@ class TestPromptAsk:
             assert result is False
 
     async def test_dismissed_returns_none(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=10000)
-        notifier._available = True
+        notifier = Notifier(enabled=True, expire_ms=10000, available=True)
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -110,8 +105,7 @@ class TestPromptAsk:
         assert result is None
 
     async def test_prompt_ask_passes_correct_args(self) -> None:
-        notifier = Notifier(enabled=True, expire_ms=15000)
-        notifier._available = True
+        notifier = Notifier(enabled=True, expire_ms=15000, available=True)
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"allow\n", b""))
@@ -133,8 +127,7 @@ class TestPromptAsk:
 
 class TestSendErrorHandling:
     async def test_send_swallows_exceptions(self) -> None:
-        notifier = Notifier(enabled=True)
-        notifier._available = True
+        notifier = Notifier(enabled=True, available=True)
 
         with patch("asyncio.create_subprocess_exec", side_effect=OSError("no such file")):
             # Should not raise

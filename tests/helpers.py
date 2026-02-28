@@ -47,6 +47,23 @@ class ExplodingCheck(StubCheck):
         raise self._error
 
 
+class ConditionalExplodingCheck(StubCheck):
+    """StubCheck that raises only when should_explode is True."""
+
+    def __init__(self, *args, error: Exception | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._error = error or RuntimeError("boom")
+        self.should_explode = False
+
+    async def run(self, target: str, context: CheckContext) -> CheckResult:
+        self.call_count += 1
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self.should_explode:
+            raise self._error
+        return self._result
+
+
 class CustomTTLCheck(StubCheck):
     """StubCheck with a custom get_result_ttl."""
 
@@ -69,6 +86,7 @@ def _simple_response(status, json_data=None):
 
 
 def _make_session(status=200, json_data=None):
-    session = MagicMock()
+    import aiohttp
+    session = MagicMock(spec=aiohttp.ClientSession)
     session.post = MagicMock(return_value=_simple_response(status, json_data))
     return session
