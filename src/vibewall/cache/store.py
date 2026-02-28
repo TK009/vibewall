@@ -7,11 +7,16 @@ from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from vibewall.cache.serde import deserialize, serialize
 
 logger = logging.getLogger(__name__)
+
+
+class CacheEntryInfo(NamedTuple):
+    value: Any
+    ttl: float
 
 _FLUSH_INTERVAL = 0.5  # seconds between batch flushes
 
@@ -165,22 +170,14 @@ class SQLiteCache:
             return None
         return entry.ttl
 
-    def get_entry_metadata(self, key: str) -> tuple[Any, float] | None:
+    def get_entry_metadata(self, key: str) -> CacheEntryInfo | None:
         """Return (value, ttl) for a cached entry, or None if missing/expired."""
         entry = self._data.get(key)
         if entry is None:
             return None
         if time.time() > entry.expires_at:
             return None
-        return (entry.value, entry.ttl)
-
-    def force_near_expiry(self, key: str, remaining: float = 1.0, original_ttl: float = 100.0) -> None:
-        """Simulate near-expiry for a cached entry (test helper)."""
-        entry = self._data.get(key)
-        if entry is None:
-            return
-        entry.expires_at = time.time() + remaining
-        entry.ttl = original_ttl
+        return CacheEntryInfo(entry.value, entry.ttl)
 
     def cleanup(self) -> int:
         now = time.time()

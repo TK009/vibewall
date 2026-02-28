@@ -156,16 +156,18 @@ api_key = "$VIBEWALL_TEST_KEY"
     assert cfg.llm.api_key == "secret-from-env"
 
 
-def test_llm_missing_env_var_resolves_to_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_missing_env_var_resolves_to_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.delenv("VIBEWALL_NONEXISTENT_KEY", raising=False)
     toml = tmp_path / "test.toml"
     toml.write_text("""
 [llm]
 api_key = "$VIBEWALL_NONEXISTENT_KEY"
 """)
-    cfg = VibewallConfig.load(toml)
+    with caplog.at_level(logging.WARNING, logger="vibewall.config"):
+        cfg = VibewallConfig.load(toml)
     assert cfg.llm is not None
     assert cfg.llm.api_key == ""
+    assert any("VIBEWALL_NONEXISTENT_KEY" in r.message and "not set" in r.message for r in caplog.records)
 
 
 def test_no_llm_section_gives_none() -> None:

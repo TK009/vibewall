@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from helpers import StubCheck
+from helpers import StubCheck, force_near_expiry
 from vibewall.cache.store import SQLiteCache
 from vibewall.config import ValidatorConfig, VibewallConfig
 from vibewall.models import CheckResult, CheckStatus
@@ -72,7 +72,7 @@ class TestPipelineIntegration:
         assert check.call_count == 1
 
         # Simulate near-expiry
-        cache.force_near_expiry("npm_rules:pkg")
+        force_near_expiry(cache,"npm_rules:pkg")
 
         # Run again — should serve from cache but trigger refresh
         check.call_count = 0

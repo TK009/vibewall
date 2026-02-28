@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from helpers import CustomTTLCheck, ExplodingCheck, StubCheck
+from helpers import CustomTTLCheck, ExplodingCheck, StubCheck, force_near_expiry
 from vibewall.cache.store import TTLCache
 from vibewall.config import ValidatorConfig, VibewallConfig
 from vibewall.models import CheckContext, CheckResult, CheckStatus
@@ -381,7 +381,7 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Simulate near-expiry (< 20% remaining)
-        cache.force_near_expiry("npm_rules:pkg")
+        force_near_expiry(cache,"npm_rules:pkg")
 
         # Second run should get cache hit but schedule refresh
         check.call_count = 0
@@ -404,7 +404,7 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Simulate near-expiry
-        cache.force_near_expiry("npm_rules:pkg")
+        force_near_expiry(cache,"npm_rules:pkg")
 
         # Two concurrent runs
         check.call_count = 0
@@ -432,7 +432,7 @@ class TestBackgroundRefresh:
         assert check.call_count == 1
 
         # Simulate near-expiry to trigger refresh
-        cache.force_near_expiry("npm_rules:pkg")
+        force_near_expiry(cache,"npm_rules:pkg")
 
         # Arm the check to explode on next run
         check.should_explode = True
@@ -443,9 +443,9 @@ class TestBackgroundRefresh:
         # The refresh should have cached an ERR result
         meta = cache.get_entry_metadata("npm_rules:pkg")
         assert meta is not None
-        (raw, display), ttl = meta
+        (raw, display) = meta.value
         assert raw.status == CheckStatus.ERR
-        assert ttl == 20.0
+        assert meta.ttl == 20.0
 
 
 class TestShutdown:
@@ -457,7 +457,7 @@ class TestShutdown:
 
         # Populate cache, then simulate near-expiry to trigger refresh
         await runner.run("npm", "pkg")
-        cache.force_near_expiry("npm_rules:pkg")
+        force_near_expiry(cache,"npm_rules:pkg")
 
         check._delay = 10  # slow refresh
         await runner.run("npm", "pkg")
@@ -587,9 +587,9 @@ class TestBackgroundWarnExecution:
 
         meta = cache.get_entry_metadata("npm_downloads:pkg")
         assert meta is not None
-        (raw, display), ttl = meta
+        (raw, display) = meta.value
         assert raw.status == CheckStatus.ERR
-        assert ttl == 25.0
+        assert meta.ttl == 25.0
 
     async def test_bg_exception_notifies_on_check_done(self) -> None:
         """When a background check raises, on_check_done is still called with an ERR result."""

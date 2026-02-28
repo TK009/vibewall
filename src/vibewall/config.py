@@ -161,7 +161,10 @@ class VibewallConfig:
             _warn_unknown_keys("llm", llm_data, _KNOWN_LLM_KEYS)
             api_key = llm_data.get("api_key", "")
             if isinstance(api_key, str) and api_key.startswith("$"):
-                api_key = os.environ.get(api_key[1:], "")
+                env_name = api_key[1:]
+                api_key = os.environ.get(env_name, "")
+                if not api_key:
+                    log.warning("llm api_key env var '%s' is not set", env_name)
             cfg.llm = LlmConfig(
                 provider=llm_data.get("provider", "anthropic"),
                 model=llm_data.get("model", "claude-sonnet-4-20250514"),

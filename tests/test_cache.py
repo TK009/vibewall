@@ -75,7 +75,6 @@ class TestExpiration:
         with patch("vibewall.cache.store.time.time", return_value=now):
             memory_cache.set("key", "value", ttl=10)
         with patch("vibewall.cache.store.time.time", return_value=now + 11):
-            memory_cache.get("key")
             assert memory_cache.get("key") is None
 
 

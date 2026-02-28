@@ -77,13 +77,18 @@ class CheckRunner:
         """Whether the runner's task group is active."""
         return self._tg is not None
 
-    async def wait_for_refresh(self, check_name: str, target: str, timeout: float = 5.0) -> None:
-        """Wait for a background refresh to complete."""
+    async def wait_for_refresh(self, check_name: str, target: str, timeout: float = 5.0) -> bool:
+        """Wait for a background refresh to complete.
+
+        Must be called after a ``run()`` that triggered the refresh.
+        Returns True if a refresh was awaited, False if no refresh was pending.
+        """
         cache_key = f"{check_name}:{target}"
         event = self._refresh_events.get(cache_key)
         if event is None:
-            return
+            return False
         await asyncio.wait_for(event.wait(), timeout=timeout)
+        return True
 
     async def start(self) -> None:
         """Initialize the background task group. Called at proxy startup."""
@@ -529,6 +534,7 @@ class CheckRunner:
             finally:
                 self._refreshing.discard(cache_key)
                 event.set()
+                self._refresh_events.pop(cache_key, None)
 
         tg = await self._ensure_started()
         tg.create_task(_do_refresh())
@@ -546,6 +552,7 @@ class CheckRunner:
                 pass
             self._tg = None
         self._refreshing.clear()
+        self._refresh_events.clear()
 
     def _has_ignore_allowlist(self, check_name: str) -> bool:
         """Return True if the check's config has ignore_allowlist enabled."""

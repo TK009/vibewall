@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 from vibewall.models import CheckContext, CheckResult, CheckStatus
 from vibewall.validators.base import BaseCheck
+
+
+def force_near_expiry(cache, key: str, remaining: float = 1.0, original_ttl: float = 100.0) -> None:
+    """Simulate near-expiry for a cached entry (test helper)."""
+    entry = cache._data.get(key)
+    if entry is None:
+        return
+    entry.expires_at = time.time() + remaining
+    entry.ttl = original_ttl
 
 
 class StubCheck(BaseCheck):
