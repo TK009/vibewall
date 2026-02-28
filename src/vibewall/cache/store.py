@@ -48,9 +48,9 @@ class _Entry:
 class SQLiteCache:
     """L1 in-memory dict + L2 SQLite persistent cache.
 
-    All public get/set/delete/clear methods are synchronous (matching the
-    old TTLCache API) so callers in runner.py need zero changes.  SQLite
-    writes are batched and flushed periodically in the background.
+    All public get/set/delete/clear methods are synchronous so callers
+    never need to await cache operations.  SQLite writes are batched and
+    flushed periodically in the background.
     """
 
     _SCHEMA_VERSION = "1"
@@ -114,7 +114,7 @@ class SQLiteCache:
             self._db = None
 
     # ------------------------------------------------------------------
-    # Sync public API (unchanged from TTLCache)
+    # Sync public API
     # ------------------------------------------------------------------
 
     def get(self, key: str) -> Any | None:

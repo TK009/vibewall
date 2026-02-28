@@ -65,7 +65,7 @@ class ConsoleDisplay:
         ask_timeout: int = 120,
     ) -> None:
         """
-        enabled_checks: {"npm": ["npm_blocklist", ...], "url": ["url_blocklist", ...]}
+        enabled_checks: {"npm": ["npm_rules", ...], "url": ["url_rules", ...]}
         check_abbrevs: maps check name → abbreviation for column headers
         scope_order: maps scope → ordered list of all check names in that scope
         """

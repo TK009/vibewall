@@ -10,7 +10,7 @@ class BaseCheck(ABC):
     name: str
     abbrev: str = "???"
     depends_on: tuple[str, ...] = ()
-    scope: str  # "npm" or "url"
+    scope: str  # "npm", "pypi", or "url"
     default_action: str = "block"
     default_cache_ttl: int | None = None  # None = use global default
     default_ignore_allowlist: bool = False
