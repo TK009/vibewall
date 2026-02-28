@@ -92,7 +92,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     if config.llm and config.llm.api_key:
         from vibewall.llm.client import LlmClient
 
-        llm_client = LlmClient(config.llm, session)
+        llm_client = LlmClient(config.llm)
         logger.info("llm_client_enabled", provider=config.llm.provider, model=config.llm.model)
 
     from vibewall.llm.history import RequestHistory
@@ -100,6 +100,7 @@ async def run_proxy(config: VibewallConfig, verbose: bool = False) -> None:
     history = RequestHistory(maxlen=50)
 
     runner = CheckRunner(checks, config, cache, llm_client=llm_client, history=history)
+    await runner.start()
 
     # Build notifier
     notifier = Notifier(

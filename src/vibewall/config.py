@@ -18,7 +18,7 @@ _VALID_ACTIONS = {"block", "warn", "ask-allow", "ask-block", "ask-llm-allow", "a
 _KNOWN_ROOT_KEYS = {"port", "host", "pipeline_timeout", "config_dir", "cache", "notifications", "llm", "validators"}
 _KNOWN_CACHE_KEYS = {"default_ttl", "error_ttl", "max_entries", "db_path", "cleanup_interval"}
 _KNOWN_NOTIFICATIONS_KEYS = {"enabled", "blocked", "warned", "ask", "expire_ms", "ask_timeout"}
-_KNOWN_LLM_KEYS = {"provider", "model", "api_key", "base_url", "max_tokens", "temperature", "max_concurrent", "cache_ttl"}
+_KNOWN_LLM_KEYS = {"provider", "model", "api_key", "base_url", "max_tokens", "temperature", "max_concurrent", "cache_ttl", "timeout"}
 
 
 def _warn_unknown_keys(section_name: str, data: dict, known: set[str]) -> None:
@@ -70,6 +70,7 @@ class LlmConfig:
     temperature: float = 0.0
     max_concurrent: int = 5  # max concurrent LLM API calls
     cache_ttl: int = 120  # seconds; 0 = disabled
+    timeout: int = 30  # seconds; request timeout for SDK clients
 
     def __repr__(self) -> str:
         masked = f"...{self.api_key[-4:]}" if len(self.api_key) >= 4 else "***"
@@ -170,6 +171,7 @@ class VibewallConfig:
                 temperature=llm_data.get("temperature", 0.0),
                 max_concurrent=llm_data.get("max_concurrent", 5),
                 cache_ttl=llm_data.get("cache_ttl", 120),
+                timeout=llm_data.get("timeout", 30),
             )
 
         # Per-validator config from [validators.*] sections

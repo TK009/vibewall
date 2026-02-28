@@ -479,9 +479,9 @@ class TestShutdown:
         check._delay = 10  # slow refresh
         await runner.run("npm", "pkg")
 
-        assert len(runner._background_tasks) > 0
+        assert runner._tg is not None
         await runner.shutdown()
-        assert len(runner._background_tasks) == 0
+        assert runner._tg is None
 
 
 class TestBackgroundEligible:

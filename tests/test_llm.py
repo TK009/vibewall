@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiohttp
+import anthropic
+import openai
 import pytest
 
 from vibewall.cache.store import TTLCache
 from vibewall.config import LlmConfig, ValidatorConfig, VibewallConfig
+from vibewall.exceptions import LlmError
 from vibewall.llm.client import LlmClient
 from vibewall.llm.history import HistoryEntry, RequestHistory
 from vibewall.llm.prompt import build_llm_prompt
@@ -291,158 +293,139 @@ class TestLlmConfigRepr:
 
 
 class TestLlmClient:
-    def _make_mock_resp(self, status: int = 200, json_data: dict | None = None, text: str = "") -> MagicMock:
-        mock_resp = AsyncMock()
-        mock_resp.status = status
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json = AsyncMock(return_value=json_data or {})
-        mock_resp.text = AsyncMock(return_value=text)
-        mock_resp.request_info = MagicMock()
-        mock_resp.history = ()
-        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
-        mock_resp.__aexit__ = AsyncMock(return_value=False)
-        return mock_resp
+    def _make_anthropic_response(self, text: str = "ok") -> MagicMock:
+        block = MagicMock()
+        block.type = "text"
+        block.text = text
+        resp = MagicMock()
+        resp.content = [block]
+        return resp
+
+    def _make_openai_response(self, text: str = "ok") -> MagicMock:
+        message = MagicMock()
+        message.content = text
+        choice = MagicMock()
+        choice.message = message
+        resp = MagicMock()
+        resp.choices = [choice]
+        return resp
 
     async def test_anthropic_provider(self) -> None:
         config = LlmConfig(provider="anthropic", api_key="test-key", model="test-model")
-        mock_resp = self._make_mock_resp(json_data={
-            "content": [{"text": "DECISION: ALLOW\nOk"}],
-        })
+        client = LlmClient(config)
+        client._anthropic = MagicMock()
+        client._anthropic.messages = MagicMock()
+        client._anthropic.messages.create = AsyncMock(
+            return_value=self._make_anthropic_response("DECISION: ALLOW\nOk"),
+        )
 
-        session = MagicMock()
-        session.post = MagicMock(return_value=mock_resp)
-
-        client = LlmClient(config, session)
         result = await client.ask("system", "user")
         assert result == "DECISION: ALLOW\nOk"
 
-        # Verify headers
-        call_kwargs = session.post.call_args
-        headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-        assert headers["x-api-key"] == "test-key"
-        assert "anthropic-version" in headers
+        # Verify SDK was called with correct params
+        call_kwargs = client._anthropic.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "test-model"
+        assert call_kwargs["system"] == "system"
 
     async def test_openai_provider(self) -> None:
         config = LlmConfig(provider="openai", api_key="test-key", model="gpt-4")
-        mock_resp = self._make_mock_resp(json_data={
-            "choices": [{"message": {"content": "DECISION: BLOCK\nRisky"}}],
-        })
+        client = LlmClient(config)
+        client._openai = MagicMock()
+        client._openai.chat = MagicMock()
+        client._openai.chat.completions = MagicMock()
+        client._openai.chat.completions.create = AsyncMock(
+            return_value=self._make_openai_response("DECISION: BLOCK\nRisky"),
+        )
 
-        session = MagicMock()
-        session.post = MagicMock(return_value=mock_resp)
-
-        client = LlmClient(config, session)
         result = await client.ask("system", "user")
         assert result == "DECISION: BLOCK\nRisky"
 
-        call_kwargs = session.post.call_args
-        headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
-        assert headers["Authorization"] == "Bearer test-key"
+        call_kwargs = client._openai.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == "gpt-4"
 
     async def test_semaphore_limits_concurrency(self) -> None:
         import asyncio
-        from contextlib import asynccontextmanager
 
         config = LlmConfig(provider="anthropic", api_key="k", model="m", max_concurrent=2)
         peak = 0
         active = 0
 
-        @asynccontextmanager
-        async def _fake_post(url, **kwargs):
+        async def _slow_create(**kwargs):
             nonlocal active, peak
             active += 1
             peak = max(peak, active)
             await asyncio.sleep(0.05)
             active -= 1
+            return self._make_anthropic_response("ok")
 
-            mock_resp = MagicMock()
-            mock_resp.status = 200
-            mock_resp.raise_for_status = MagicMock()
-            mock_resp.json = AsyncMock(return_value={
-                "content": [{"text": "ok"}],
-            })
-            yield mock_resp
+        client = LlmClient(config)
+        client._anthropic = MagicMock()
+        client._anthropic.messages = MagicMock()
+        client._anthropic.messages.create = _slow_create
 
-        session = MagicMock()
-        session.post = _fake_post
-
-        client = LlmClient(config, session)
         await asyncio.gather(*[client.ask("sys", "usr") for _ in range(5)])
         assert peak <= 2
 
-    @patch("vibewall.llm.client._MAX_RETRIES", 3)
-    async def test_retry_on_429(self) -> None:
-        """Client retries on 429 and succeeds on subsequent attempt."""
+    async def test_anthropic_api_error_raises_llm_error(self) -> None:
+        """SDK API errors are wrapped in LlmError."""
         config = LlmConfig(provider="anthropic", api_key="k", model="m")
+        client = LlmClient(config)
+        client._anthropic = MagicMock()
+        client._anthropic.messages = MagicMock()
+        client._anthropic.messages.create = AsyncMock(
+            side_effect=anthropic.APIError(
+                message="rate limited",
+                request=MagicMock(),
+                body=None,
+            ),
+        )
 
-        fail_resp = self._make_mock_resp(status=429, text="rate limited")
-        ok_resp = self._make_mock_resp(json_data={"content": [{"text": "ok"}]})
-
-        session = MagicMock()
-        session.post = MagicMock(side_effect=[fail_resp, ok_resp])
-
-        client = LlmClient(config, session)
-        with patch("vibewall.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            result = await client.ask("sys", "usr")
-        assert result == "ok"
-        assert session.post.call_count == 2
-
-    @patch("vibewall.llm.client._MAX_RETRIES", 2)
-    async def test_retry_exhausted_raises(self) -> None:
-        """Client raises after exhausting retries."""
-        config = LlmConfig(provider="anthropic", api_key="k", model="m")
-
-        fail_resp = self._make_mock_resp(status=500, text="server error")
-
-        session = MagicMock()
-        session.post = MagicMock(return_value=fail_resp)
-
-        client = LlmClient(config, session)
-        with patch("vibewall.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(aiohttp.ClientResponseError):
-                await client.ask("sys", "usr")
-        assert session.post.call_count == 2
-
-    @patch("vibewall.llm.client._MAX_RETRIES", 3)
-    async def test_retry_on_client_error(self) -> None:
-        """Client retries on aiohttp.ClientError."""
-        config = LlmConfig(provider="anthropic", api_key="k", model="m")
-
-        ok_resp = self._make_mock_resp(json_data={"content": [{"text": "ok"}]})
-
-        session = MagicMock()
-        session.post = MagicMock(side_effect=[
-            aiohttp.ClientError("connection reset"),
-            ok_resp,
-        ])
-
-        client = LlmClient(config, session)
-        with patch("vibewall.llm.client.asyncio.sleep", new_callable=AsyncMock):
-            result = await client.ask("sys", "usr")
-        assert result == "ok"
-
-    async def test_anthropic_unexpected_response_raises(self) -> None:
-        """Raises ValueError on unexpected Anthropic response structure."""
-        config = LlmConfig(provider="anthropic", api_key="k", model="m")
-        mock_resp = self._make_mock_resp(json_data={"wrong": "structure"})
-
-        session = MagicMock()
-        session.post = MagicMock(return_value=mock_resp)
-
-        client = LlmClient(config, session)
-        with pytest.raises(ValueError, match="unexpected Anthropic response"):
+        with pytest.raises(LlmError, match="Anthropic API error"):
             await client.ask("sys", "usr")
 
-    async def test_openai_unexpected_response_raises(self) -> None:
-        """Raises ValueError on unexpected OpenAI response structure."""
+    async def test_openai_api_error_raises_llm_error(self) -> None:
+        """SDK API errors are wrapped in LlmError."""
         config = LlmConfig(provider="openai", api_key="k", model="m")
-        mock_resp = self._make_mock_resp(json_data={"wrong": "structure"})
+        client = LlmClient(config)
+        client._openai = MagicMock()
+        client._openai.chat = MagicMock()
+        client._openai.chat.completions = MagicMock()
+        client._openai.chat.completions.create = AsyncMock(
+            side_effect=openai.APIError(
+                message="server error",
+                request=MagicMock(),
+                body=None,
+            ),
+        )
 
-        session = MagicMock()
-        session.post = MagicMock(return_value=mock_resp)
+        with pytest.raises(LlmError, match="OpenAI API error"):
+            await client.ask("sys", "usr")
 
-        client = LlmClient(config, session)
-        with pytest.raises(ValueError, match="unexpected OpenAI response"):
+    async def test_anthropic_empty_content_raises(self) -> None:
+        """Raises LlmError on empty Anthropic response content."""
+        config = LlmConfig(provider="anthropic", api_key="k", model="m")
+        client = LlmClient(config)
+        resp = MagicMock()
+        resp.content = []
+        client._anthropic = MagicMock()
+        client._anthropic.messages = MagicMock()
+        client._anthropic.messages.create = AsyncMock(return_value=resp)
+
+        with pytest.raises(LlmError, match="no content"):
+            await client.ask("sys", "usr")
+
+    async def test_openai_empty_choices_raises(self) -> None:
+        """Raises LlmError on empty OpenAI response choices."""
+        config = LlmConfig(provider="openai", api_key="k", model="m")
+        client = LlmClient(config)
+        resp = MagicMock()
+        resp.choices = []
+        client._openai = MagicMock()
+        client._openai.chat = MagicMock()
+        client._openai.chat.completions = MagicMock()
+        client._openai.chat.completions.create = AsyncMock(return_value=resp)
+
+        with pytest.raises(LlmError, match="no choices"):
             await client.ask("sys", "usr")
 
 

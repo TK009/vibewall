@@ -16,6 +16,8 @@ dependencies = [
     "click",
     "structlog",
     "rich",
+    "anthropic>=0.84.0",
+    "openai>=2.24.0",
 ]
 
 [project.scripts]

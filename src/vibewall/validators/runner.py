@@ -68,8 +68,26 @@ class CheckRunner:
         self._cache = cache
         self._llm_client = llm_client
         self._history = history
-        self._background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+        self._tg: asyncio.TaskGroup | None = None
         self._refreshing: set[str] = set()
+
+    async def start(self) -> None:
+        """Initialize the background task group. Called at proxy startup."""
+        self._tg = asyncio.TaskGroup()
+        await self._tg.__aenter__()
+
+    async def _ensure_started(self) -> asyncio.TaskGroup:
+        """Lazily initialize the task group if not already started."""
+        if self._tg is None:
+            await self.start()
+        return self._tg  # type: ignore[return-value]
+
+    async def __aenter__(self) -> "CheckRunner":
+        await self.start()
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.shutdown()
 
     def get_enabled_check_names(self, scope: str) -> list[str]:
         """Return ordered list of enabled check names for a scope."""
@@ -165,7 +183,7 @@ class CheckRunner:
                     completed_names.add(check.name)
                     self._notify(on_check_done, check.name, display)
                     if near_expiry:
-                        self._schedule_refresh(check, target, context)
+                        await self._schedule_refresh(check, target, context)
                 else:
                     to_run.append(check)
 
@@ -179,7 +197,7 @@ class CheckRunner:
                     bg_event = asyncio.Event()
                     bg_counter = _BgCounter(bg_event)
                 bg_counter.inc()
-                self._spawn_background_check(
+                await self._spawn_background_check(
                     check, target, context, on_check_done, bg_counter,
                 )
                 completed_names.add(check.name)
@@ -234,10 +252,6 @@ class CheckRunner:
         all_results = await self._apply_llm_decisions(
             scope, target, all_results, on_check_done,
         )
-
-        # Prune completed background tasks to prevent unbounded accumulation
-        # across successive run() calls.
-        self._background_tasks = {t for t in self._background_tasks if not t.done()}
 
         run_result = self._finalize(all_results, short_circuit=allowlist_sc)
         self._record_history(scope, target, all_results, run_result)
@@ -432,7 +446,7 @@ class CheckRunner:
                 eligible.add(c.name)
         return eligible
 
-    def _spawn_background_check(
+    async def _spawn_background_check(
         self,
         check: BaseCheck,
         target: str,
@@ -465,12 +479,10 @@ class CheckRunner:
             finally:
                 bg_counter.dec()
 
-        task = asyncio.create_task(_do_bg())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
+        tg = await self._ensure_started()
+        return tg.create_task(_do_bg())
 
-    def _schedule_refresh(
+    async def _schedule_refresh(
         self, check: BaseCheck, target: str, context: CheckContext,
     ) -> None:
         """Spawn a background task to refresh a near-expiry cache entry."""
@@ -501,17 +513,21 @@ class CheckRunner:
             finally:
                 self._refreshing.discard(cache_key)
 
-        task = asyncio.create_task(_do_refresh())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        tg = await self._ensure_started()
+        tg.create_task(_do_refresh())
 
     async def shutdown(self) -> None:
-        """Cancel all background tasks and await them."""
-        for task in list(self._background_tasks):
-            task.cancel()
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-        self._background_tasks.clear()
+        """Cancel all background tasks and shut down the task group."""
+        if self._tg is not None:
+            try:
+                await self._tg.__aexit__(
+                    type(asyncio.CancelledError()),
+                    asyncio.CancelledError(),
+                    None,
+                )
+            except BaseException:
+                pass
+            self._tg = None
         self._refreshing.clear()
 
     def _has_ignore_allowlist(self, check_name: str) -> bool:

@@ -15,3 +15,7 @@ class CheckError(VibewallError):
 
 class CacheError(VibewallError):
     """Cache operation failure (flush, deserialize, cleanup)."""
+
+
+class LlmError(VibewallError):
+    """LLM API call failure (wraps SDK exceptions)."""
