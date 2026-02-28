@@ -60,10 +60,10 @@ class RegistryCheckBase(BaseCheck):
                     status_code=resp.status,
                 )
         except asyncio.TimeoutError:
-            logger.warning(f"{self.log_prefix}_registry_timeout", package=target)
+            logger.warning("registry_timeout", ecosystem=self.log_prefix, package=target)
             return CheckResult.err("registry request timed out")
         except aiohttp.ClientError as e:
-            logger.warning(f"{self.log_prefix}_registry_error", package=target, error=str(e))
+            logger.warning("registry_error", ecosystem=self.log_prefix, package=target, error=str(e))
             return CheckResult.err(f"registry request failed: {e}")
 
 
@@ -221,10 +221,10 @@ class DownloadsCheckBase(BaseCheck):
                     downloads=downloads,
                 )
         except asyncio.TimeoutError:
-            logger.warning(f"{self.log_prefix}_downloads_timeout", package=target)
+            logger.warning("downloads_timeout", ecosystem=self.log_prefix, package=target)
             return CheckResult.err("downloads request timed out")
         except aiohttp.ClientError as e:
-            logger.warning(f"{self.log_prefix}_downloads_error", package=target, error=str(e))
+            logger.warning("downloads_error", ecosystem=self.log_prefix, package=target, error=str(e))
             return CheckResult.err(f"downloads request failed: {e}")
 
 

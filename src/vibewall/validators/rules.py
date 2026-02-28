@@ -8,8 +8,6 @@ from urllib.parse import urlparse
 
 import structlog
 
-from vibewall.exceptions import ConfigError
-
 logger = structlog.get_logger()
 
 _VALID_ACTIONS = frozenset({
@@ -172,13 +170,10 @@ class RuleSet:
                 logger.warning("rule_outside_section", file=str(rules_path), line=lineno, text=line)
                 continue
 
-            try:
-                rule = _parse_rule_entry(
-                    line, current_action, current_scope, current_methods,
-                    str(rules_path), lineno,
-                )
-            except ConfigError:
-                continue
+            rule = _parse_rule_entry(
+                line, current_action, current_scope, current_methods,
+                str(rules_path), lineno,
+            )
             if rule is not None:
                 rules.append(rule)
 
@@ -249,9 +244,7 @@ def _parse_rule_entry(
             compiled = re.compile(pattern_str, re.IGNORECASE)
         except re.error as e:
             logger.warning("invalid_regex", file=source_file, line=source_line, pattern=pattern_str, error=str(e))
-            raise ConfigError(
-                f"invalid regex '{pattern_str}' at {source_file}:{source_line}: {e}"
-            ) from e
+            return None
         return Rule(
             action=action,
             scope=scope,
