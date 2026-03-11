@@ -1,5 +1,6 @@
 # Vibewall — Keep bad vibes away
 
+> [!WARNING]
 > **Warning:** Vibewall is in early alpha. Expect rough edges, breaking changes, and bugs. Do not rely on it as your sole security layer. Contributions and bug reports are welcome.
 
 **Firewall for AI coding agents.**
