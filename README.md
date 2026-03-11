@@ -2,9 +2,9 @@
 
 > **Warning:** Vibewall is in early alpha. Expect rough edges, breaking changes, and bugs. Do not rely on it as your sole security layer. Contributions and bug reports are welcome.
 
-**Hallucination firewall for AI coding agents.**
+**Firewall for AI coding agents.**
 
-Your AI agent just suggested installing `reqeusts` instead of `requests`. A typosquatting package. Or maybe it hallucinated a package that doesn't exist at all — and someone already registered it with malware inside. Vibewall catches these before they reach your system.
+Your AI agent just suggested installing `reqeusts` instead of `requests`. A typosquatting package. Or maybe it hallucinated a package that doesn't exist at all — and someone already registered it with malware inside. Vibewall catches these before they reach your system. The goal is to catch all issues that even humans could do.
 
 ### What it does
 
